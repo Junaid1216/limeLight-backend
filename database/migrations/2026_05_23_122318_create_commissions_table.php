@@ -15,7 +15,18 @@ class CreateCommissionsTable extends Migration
     {
         Schema::create('commissions', function (Blueprint $table) {
             $table->id();
-            $table->timestamps();
+             $table->enum('role', [
+            'branch_manager',
+            'sales_staff'
+        ]);
+
+        $table->integer('from_target');
+
+        $table->integer('to_target');
+
+        $table->decimal('commission', 10, 2);
+
+        $table->timestamps();
         });
     }
 

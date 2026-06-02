@@ -209,6 +209,11 @@ Route::get('/get-branch-designations/{branchId}', [TargetController::class, 'get
 
 // ############ Commission ################
 Route::get('/commission', [CommissionController::class, 'index'])->name('commission.index')->middleware('check.permission:Commissions,view');
+Route::get('/commission-create', [CommissionController::class, 'create'])->name('commission.create')->middleware('check.permission:Commissions,create');
+Route::post('/commission-store', [CommissionController::class, 'store'])->name('commission.store')->middleware('check.permission:Commissions,create');
+Route::get('/commission-edit/{id}', [CommissionController::class, 'edit'])->name('commission.edit')->middleware('check.permission:Commissions,edit');
+Route::post('/commission-update/{id}', [CommissionController::class, 'update'])->name('commission.update')->middleware('check.permission:Commissions,edit');
+Route::delete('/commission-delete/{id}', [CommissionController::class, 'delete'])->name('commission.delete')->middleware('check.permission:Commissions,delete');
 
 
 

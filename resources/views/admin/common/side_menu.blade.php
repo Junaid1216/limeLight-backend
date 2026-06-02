@@ -156,7 +156,7 @@
                 <li class="dropdown {{ request()->is('admin/commission') || request()->is('admin/commission/*') ? 'active' : ''}}">
                     <a href="{{ url('admin/commission') }}" class="nav-link">
                         <i data-feather="dollar-sign"></i>
-                        <span>Commission</span>
+                        <span>Commissions</span>
                     </a>
                 </li>
             @endif
