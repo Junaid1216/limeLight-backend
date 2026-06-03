@@ -10,7 +10,7 @@
             {{-- Add Commission Card --}}
             <div class="card">
                 <div class="card-header">
-                    <h4>Add Commission</h4>
+                    <h4>Add Commission <small class="font-weight-bold text-danger"> (Entity Sale Price × Admin-defined Commission = Commission per item/sale)</small></h4>
                 </div>
 
                 <form action="{{ route('commission.store') }}" method="POST">
@@ -33,28 +33,6 @@
                                             Sales Staff
                                         </option>
                                     </select>
-                                </div>
-                            </div>
-
-                            <div class="col-md-5">
-                                <div class="form-group">
-                                    <label>From Target</label>
-
-                                    <input type="number"
-                                           name="from_target"
-                                           class="form-control"
-                                           required>
-                                </div>
-                            </div>
-
-                            <div class="col-md-5">
-                                <div class="form-group">
-                                    <label>To Target</label>
-
-                                    <input type="number"
-                                           name="to_target"
-                                           class="form-control"
-                                           required>
                                 </div>
                             </div>
 
@@ -101,8 +79,6 @@
                             <tr>
                                 <th>Sr.</th>
                                 <th>Role</th>
-                                <th>From Target</th>
-                                <th>To Target</th>
                                 <th>Commission</th>
                                 <th>Action</th>
                             </tr>
@@ -121,19 +97,10 @@
                                             : 'Sales Staff' }}
                                     </td>
 
-                                    <td>{{ $commission->from_target }}</td>
-
-                                    <td>{{ $commission->to_target }}</td>
-
                                     <td>{{ $commission->commission }} %</td>
 
                                     <td>
                                     <div class="d-flex align-items-center" style="gap: 6px;">
-                                        <a href="{{ route('commission.edit',$commission->id) }}"
-                                           class="btn btn-primary btn-sm">
-                                            <i class="fa fa-edit"></i>
-                                        </a>
-
                                         @if (Auth::guard('admin')->check() ||
                                                                 ($sideMenuPermissions->has('Commissions') && $sideMenuPermissions['Commissions']->contains('delete')))
                                                             <form id="delete-form-{{ $commission->id }}"

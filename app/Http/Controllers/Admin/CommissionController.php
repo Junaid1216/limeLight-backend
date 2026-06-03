@@ -20,10 +20,6 @@ class CommissionController extends Controller
 
         'role' => 'required',
 
-        'from_target' => 'required|numeric',
-
-        'to_target' => 'required|numeric|gt:from_target',
-
         'commission' => 'required|numeric',
 
     ]);
