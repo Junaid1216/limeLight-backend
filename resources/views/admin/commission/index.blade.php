@@ -16,12 +16,12 @@
                 <form action="{{ route('commission.store') }}" method="POST">
                     @csrf
 
-                    <div class="card-body">
+                    <div class="card-body pb-2">
 
-                        <div class="row">
+                        <div class="row mb-0">
 
-                            <div class="col-md-5">
-                                <div class="form-group">
+                            <div class="col-md-6">
+                                <div class="form-group mb-2">
                                     <label>Role</label>
 
                                     <select name="role" class="form-control" required>
@@ -36,8 +36,8 @@
                                 </div>
                             </div>
 
-                            <div class="col-md-5">
-                                <div class="form-group">
+                            <div class="col-md-6">
+                                <div class="form-group mb-2">
                                     <label>Commission</label>
                                     <div class="input-group">
                                     <input type="number"
@@ -56,8 +56,8 @@
 
                     </div>
 
-                    <div class="card-footer text-center">
-                        <button class="btn btn-primary">
+                    <div class="card-footer text-center" >
+                        <button class="btn btn-primary mb-2">
                             Save Commission
                         </button>
                     </div>

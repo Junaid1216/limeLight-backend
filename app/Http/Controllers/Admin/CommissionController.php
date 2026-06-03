@@ -10,7 +10,7 @@ class CommissionController extends Controller
 {
     public function index()
     {
-        $commissions = Commission::all();
+        $commissions = Commission::latest()->get();
         return view('admin.commission.index', compact('commissions'));
     }
 
@@ -24,7 +24,14 @@ class CommissionController extends Controller
 
     ]);
 
-    Commission::create($request->all());
+    Commission::updateOrCreate(
+        [
+            'role' => $request->role
+        ],
+        [
+            'commission' => $request->commission
+        ]
+    );
 
     return redirect()->route('commission.index')->with('success', 'Commission Added Successfully');
 
