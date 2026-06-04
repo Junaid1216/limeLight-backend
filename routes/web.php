@@ -18,8 +18,11 @@ use App\Http\Controllers\Admin\RolePermissionController;
 use App\Http\Controllers\Admin\SaleStaffController;
 use App\Http\Controllers\Admin\SecurityController;
 use App\Http\Controllers\Admin\SeoController;
+use App\Http\Controllers\Admin\SlabController;
 use App\Http\Controllers\Admin\SubAdminController;
 use App\Http\Controllers\Admin\TargetController;
+use App\Http\Controllers\Admin\TestingVideoController;
+use App\Http\Controllers\Admin\TrainingVideoController;
 use App\Http\Controllers\BlogController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
@@ -209,13 +212,18 @@ Route::get('/get-branch-designations/{branchId}', [TargetController::class, 'get
 
 // ############ Commission ################
 Route::get('/commission', [CommissionController::class, 'index'])->name('commission.index')->middleware('check.permission:Commissions,view');
-Route::get('/commission-create', [CommissionController::class, 'create'])->name('commission.create')->middleware('check.permission:Commissions,create');
 Route::post('/commission-store', [CommissionController::class, 'store'])->name('commission.store')->middleware('check.permission:Commissions,create');
-Route::get('/commission-edit/{id}', [CommissionController::class, 'edit'])->name('commission.edit')->middleware('check.permission:Commissions,edit');
-Route::post('/commission-update/{id}', [CommissionController::class, 'update'])->name('commission.update')->middleware('check.permission:Commissions,edit');
 Route::delete('/commission-delete/{id}', [CommissionController::class, 'delete'])->name('commission.delete')->middleware('check.permission:Commissions,delete');
 
+// ############ Slip Bound Incentives ################
+Route::get('/slab', [SlabController::class, 'index'])->name('slab.index')->middleware('check.permission:Slip Bound Incentives,view');
+Route::post('/slab-store', [SlabController::class, 'store'])->name('slip.incentive.store')->middleware('check.permission:Slip Bound Incentives,edit');
 
+// ############ Training Video #################
+Route::get('/training_video',[TrainingVideoController::class, 'index'])->name('training.video.index')->middleware('check.permission:Training Videos,view');
+Route::post('/training_video-store',[TrainingVideoController::class, 'store'])->name('training.video.store')->middleware('check.permission:Training Videos,create');
+Route::post('/training_video-update/{id}',[TrainingVideoController::class, 'update'])->name('training.video.update')->middleware('check.permission:Training Videos,edit');
+Route::delete('/training_video-destroy/{id}',[TrainingVideoController::class, 'delete'])->name('training.video.delete')->middleware('check.permission:Training Videos,delete');
 
     // ############ Sub Admin #################
     Route::controller(SubAdminController::class)->group(function () {

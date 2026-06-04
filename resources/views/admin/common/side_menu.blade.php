@@ -152,7 +152,7 @@
             @endif
 
             @if (Auth::guard('admin')->check() ||
-                    ($sideMenuPermissions->has('Commission') && $sideMenuPermissions['Commission']->contains('view')))
+                    ($sideMenuPermissions->has('Commissions') && $sideMenuPermissions['Commissions']->contains('view')))
                 <li class="dropdown {{ request()->is('admin/commission') || request()->is('admin/commission/*') ? 'active' : ''}}">
                     <a href="{{ url('admin/commission') }}" class="nav-link">
                         <i data-feather="dollar-sign"></i>
@@ -160,6 +160,26 @@
                     </a>
                 </li>
             @endif
+
+            @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Slip Bound Incentives') && $sideMenuPermissions['Slip Bound Incentives']->contains('view')))
+                <li class="dropdown {{ request()->is('admin/slab') || request()->is('admin/slab/*') ? 'active' : ''}}">
+                    <a href="{{ url('admin/slab') }}" class="nav-link">
+                        <i data-feather="award"></i>
+                        <span>Slip Bound Incentives</span>
+                    </a>
+                </li>
+            @endif
+
+             {{-- @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Training Videos') && $sideMenuPermissions['Training Videos']->contains('view')))
+                <li class="dropdown {{ request()->is('admin/training_video') || request()->is('admin/training_video/*') ? 'active' : ''}}">
+                    <a href="{{ url('admin/training_video') }}" class="nav-link">
+                        <i data-feather="video"></i>
+                        <span>Training Videos</span>
+                    </a>
+                </li>
+            @endif --}}
 
 
             {{--  Blogs --}}
