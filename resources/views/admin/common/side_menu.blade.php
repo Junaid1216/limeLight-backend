@@ -171,7 +171,7 @@
                 </li>
             @endif
 
-             {{-- @if (Auth::guard('admin')->check() ||
+             @if (Auth::guard('admin')->check() ||
                     ($sideMenuPermissions->has('Training Videos') && $sideMenuPermissions['Training Videos']->contains('view')))
                 <li class="dropdown {{ request()->is('admin/training_video') || request()->is('admin/training_video/*') ? 'active' : ''}}">
                     <a href="{{ url('admin/training_video') }}" class="nav-link">
@@ -179,7 +179,7 @@
                         <span>Training Videos</span>
                     </a>
                 </li>
-            @endif --}}
+            @endif
 
 
             {{--  Blogs --}}
