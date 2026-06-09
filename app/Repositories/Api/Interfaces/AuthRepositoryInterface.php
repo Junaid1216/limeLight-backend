@@ -7,6 +7,7 @@ interface AuthRepositoryInterface
     public function logout();
     public function sendOtp(array $request);
     public function verifyOtp(array $request);
+    public function resendOtp(array $request);
     public function resetPassword(array $request);
     public function updateProfile(array $request);
     public function changePassword(array $request);

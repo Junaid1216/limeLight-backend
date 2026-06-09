@@ -29,11 +29,12 @@
 
                                     <div class="col-md-3">
                                         <div class="form-group">
-                                            <label>Role</label>
+                                            <label>Role <span style="color: red;">*</span></label>
 
-                                            <select name="role"
-                                                    id="role"
-                                                    class="form-control"
+                                             <select name="roles[]"
+                                                    id="roles"
+                                                    class="form-control select2"
+                                                    multiple
                                                     required>
 
                                                 <option value="">
@@ -58,7 +59,7 @@
 
                                     <div class="col-md-4">
                                         <div class="form-group">
-                                            <label>Title</label>
+                                            <label>Title <span style="color: red;">*</span></label>
 
                                             <input type="text"
                                                    name="title"
@@ -70,20 +71,20 @@
 
                                     <div class="col-md-5">
                                         <div class="form-group">
-                                            <label>Video URL</label>
+                                            <label>Video URL <span style="color: red;">*</span></label>
 
                                             <input type="text"
                                                    name="video_url"
                                                    id="video_url"
                                                    class="form-control"
-                                                   placeholder="Enter Youtube Video URL"
+                                                   placeholder="Enter Video URL"
                                                    required>
                                         </div>
                                     </div>
 
                                     <div class="col-md-12">
                                         <div class="form-group mb-0">
-                                            <label>Description</label>
+                                            <label>Description <span style="color: red;">*</span></label>
 
                                             <textarea name="description"
                                                       id="description"
@@ -91,7 +92,7 @@
                                                       class="form-control"></textarea>
                                         </div>
                                     </div>
-
+`
                                 </div>
 
                             </div>
@@ -137,7 +138,10 @@
                                         <td>{{ $loop->iteration }}</td>
 
                                         <td>
-                                            {{ ucwords(str_replace('_',' ',$video->role)) }}
+                                                 {{ collect($video->roles)
+                                                ->map(fn($role) => ucwords(str_replace('_',' ',$role)))
+                                                ->implode(', ') }}
+                                            
                                         </td>
 
                                         <td>{{ $video->title }}</td>
@@ -146,7 +150,7 @@
                                             <a href="{{ $video->video_url }}"
                                                target="_blank"
                                                class="btn btn-primary btn-sm">
-                                                View Video
+                                                View
                                             </a>
                                         </td>
 
@@ -158,7 +162,7 @@
                                                 type="button"
                                                 class="btn btn-primary btn-sm editVideo"
                                                 data-id="{{ $video->id }}"
-                                                data-role="{{ $video->role }}"
+                                                data-roles='@json($video->roles)'
                                                 data-title="{{ $video->title }}"
                                                 data-video="{{ $video->video_url }}"
                                                 data-description="{{ $video->description }}">
@@ -222,7 +226,11 @@ $(document).ready(function(){
 
         $('#video_id').val($(this).data('id'));
 
-        $('#role').val($(this).data('role'));
+        let roles = $(this).attr('data-roles');
+
+        roles = JSON.parse(roles);
+
+        $('#roles').val(roles).trigger('change');
 
         $('#title').val($(this).data('title'));
 
@@ -291,5 +299,15 @@ $(document).ready(function(){
             });
         });
     </script>
+    <script>
+$(document).ready(function () {
+
+    $('.select2').select2({
+        width: '100%',
+        placeholder: 'Select Roles'
+    });
+
+});
+</script>
 
 @endsection

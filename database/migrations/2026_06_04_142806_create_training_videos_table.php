@@ -15,11 +15,8 @@ class CreateTrainingVideosTable extends Migration
     {
         Schema::create('training_videos', function (Blueprint $table) {
             $table->id();
-            $table->enum('role', [
-                'asm',
-                'branch_manager',
-                'sales_staff'
-            ]);
+            $table->json('roles')->nullable();
+
 
             $table->string('title');
 

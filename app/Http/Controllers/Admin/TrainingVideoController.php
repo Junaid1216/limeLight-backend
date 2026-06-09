@@ -16,10 +16,17 @@ class TrainingVideoController extends Controller
 
     public function store(Request $request)
 {
+    $request->validate([
+        'roles' => 'required',
+        'title' => 'required',
+        'video_url' => 'required',
+        'description' => 'required',
+    ]);
+
     TrainingVideo::updateOrCreate(
         ['id' => $request->id],
         [
-            'role' => $request->role,
+            'roles' => $request->roles,
             'title' => $request->title,
             'video_url' => $request->video_url,
             'description' => $request->description,
@@ -29,7 +36,7 @@ class TrainingVideoController extends Controller
     return back()->with('success','Training Video Saved Successfully');
 }
 
-public function  delete()
+public function delete($id)
 {
     $video = TrainingVideo::findOrFail($id);
     $video->delete();

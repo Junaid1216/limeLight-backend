@@ -27,6 +27,10 @@ class AuthService
     {
         return $this->authRepo->verifyOtp($request);
     }
+    public function resendOtp(array $request)
+    {
+        return $this->authRepo->resendOtp($request);
+    }
     public function resetPassword(array $request)
     {
         return $this->authRepo->resetPassword($request);

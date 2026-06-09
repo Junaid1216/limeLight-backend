@@ -41,10 +41,24 @@ Route::post('/seo-bulk', [SeoController::class, 'storeBulk'])
 Route::post('/line-items', [LineItemController::class, 'store']);
 
 
+//Register
+Route::post('/register', [AuthController::class, 'register']);
+
+//Login
+Route::post('/login', [AuthController::class, 'login']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/sendotp', [AuthController::class, 'sendOtp']);
+    Route::post('/verifyotp', [AuthController::class, 'verifyOtp']);
+    Route::post('/resendotp', [AuthController::class, 'resendOtp']);
+    Route::post('/resetpassword', [AuthController::class, 'resetPassword']);
+    Route::post('/changepassword', [AuthController::class, 'changePassword']);
+    Route::get('/getprofile', [AuthController::class, 'getProfile']);
+    Route::post('/logout', [AuthController::class, 'logout']);
+});
+
+
 
 Route::middleware('auth:sanctum')->group(function () {
-    Route::get('get-profile', [AuthController::class, 'getProfile']); // Get Profile
-    Route::put('update-profile', [AuthController::class, 'updateProfile']); // Update Profile
 
     // Password reset for Admin & SubAdmin via API
     Route::post('/forgot-password', [AuthController::class, 'sendResetLink']);

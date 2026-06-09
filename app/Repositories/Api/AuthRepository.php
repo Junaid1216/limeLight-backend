@@ -2,20 +2,23 @@
 
 namespace App\Repositories\Api;
 
+use App\Mail\ForgotOTPMail;
+use App\Mail\UserCredentials;
+use App\Models\AreaSaleManager;
+use App\Models\BranchManager;
+use App\Models\SaleStaff;
 use App\Models\User;
 use App\Models\Vendor;
-use App\Mail\ForgotOTPMail;
 use App\Models\VendorImage;
-use App\Mail\UserCredentials;
+use App\Repositories\Api\Interfaces\AuthRepositoryInterface;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
-use App\Repositories\Api\Interfaces\AuthRepositoryInterface;
 
 class AuthRepository implements AuthRepositoryInterface
 {
     public function register(array $request)
     {
-        if ($request['type'] == 'customer') {
+        if ($request['type'] == 'staff') {
             $customer = User::create([
                 'name' => $request['name'],
                 'email' => $request['email'],
@@ -82,10 +85,18 @@ class AuthRepository implements AuthRepositoryInterface
     }
     public function login(array $request)
     {
-        if ($request['type'] === 'customer') {
-            $user = User::where('email', $request['email'])->first();
-        } elseif ($request['type'] === 'vendor') {
-            $user = Vendor::where('email', $request['email'])->first();
+        if ($request['type'] === 'staff') {
+            $user = SaleStaff::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+        } elseif ($request['type'] === 'manager') {
+            $user = BranchManager::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+        } elseif ($request['type'] === 'asm') {
+            $user = AreaSaleManager::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
         } else {
             return ['error' => 'Invalid user type'];
         }
@@ -106,10 +117,20 @@ class AuthRepository implements AuthRepositoryInterface
     }
     public function sendOtp(array $request)
     {
-        if ($request['type'] === 'customer') {
-            $user = User::where('email', $request['email'])->first();
-        } elseif ($request['type'] === 'vendor') {
-            $user = Vendor::where('email', $request['email'])->first();
+        if ($request['type'] === 'staff') {
+            $user = SaleStaff::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+        } elseif ($request['type'] === 'manager') {
+            $user = BranchManager::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+        } elseif ($request['type'] === 'asm') {
+            $user = AreaSaleManager::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+        } else {
+            return ['error' => 'Invalid user type'];
         }
         if (!$user) {
             return ['error' => ucfirst($request['type']) . ' not found'];
@@ -117,7 +138,7 @@ class AuthRepository implements AuthRepositoryInterface
         $otp = rand(1000, 9999);
         $user->otp = $otp;
         $user->save();
-        Mail::to($user->email)->send(new ForgotOTPMail($otp));
+        // Mail::to($user->email)->send(new ForgotOTPMail($otp));
         return [
             'otp' => $otp,
             'email' => $user->email
@@ -125,10 +146,18 @@ class AuthRepository implements AuthRepositoryInterface
     }
     public function verifyOtp(array $request)
     {
-        if ($request['type'] === 'customer') {
-            $user = User::where('email', $request['email'])->first();
-        } elseif ($request['type'] === 'vendor') {
-            $user = Vendor::where('email', $request['email'])->first();
+        if ($request['type'] === 'staff') {
+            $user = SaleStaff::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+        } elseif ($request['type'] === 'manager') {
+            $user = BranchManager::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+        } elseif ($request['type'] === 'asm') {
+            $user = AreaSaleManager::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
         } else {
             return ['error' => 'Invalid user type'];
         }
@@ -139,12 +168,62 @@ class AuthRepository implements AuthRepositoryInterface
         $user->save();
         return ['email' => $user->email];
     }
+    public function resendOtp(array $request)
+{
+    if ($request['type'] === 'staff') {
+
+        $user = SaleStaff::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+
+    } elseif ($request['type'] === 'manager') {
+
+        $user = BranchManager::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+
+    } elseif ($request['type'] === 'asm') {
+
+        $user = AreaSaleManager::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+
+    } else {
+
+        return ['error' => 'Invalid user type'];
+    }
+
+    if (!$user) {
+        return ['error' => ucfirst($request['type']) . ' not found'];
+    }
+
+    $otp = rand(1000, 9999);
+
+    $user->otp = $otp;
+
+    $user->save();
+
+    // Mail::to($user->email)->send(new ForgotOTPMail($otp));
+
+    return [
+        'otp' => $otp,
+        'email' => $user->email
+    ];
+}
     public function resetPassword(array $request)
     {
-        if ($request['type'] === 'customer') {
-            $user = User::where('email', $request['email'])->first();
-        } elseif ($request['type'] === 'vendor') {
-            $user = Vendor::where('email', $request['email'])->first();
+        if ($request['type'] === 'staff') {
+            $user = SaleStaff::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+        } elseif ($request['type'] === 'manager') {
+            $user = BranchManager::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
+        } elseif ($request['type'] === 'asm') {
+            $user = AreaSaleManager::where('email', $request['login'])
+            ->orWhere('employee_id', $request['login'])
+            ->first();
         } else {
             return ['error' => 'Invalid user type'];
         }

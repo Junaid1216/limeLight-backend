@@ -225,6 +225,7 @@ Route::post('/training_video-store',[TrainingVideoController::class, 'store'])->
 Route::post('/training_video-update/{id}',[TrainingVideoController::class, 'update'])->name('training.video.update')->middleware('check.permission:Training Videos,edit');
 Route::delete('/training_video-destroy/{id}',[TrainingVideoController::class, 'delete'])->name('training.video.delete')->middleware('check.permission:Training Videos,delete');
 
+
     // ############ Sub Admin #################
     Route::controller(SubAdminController::class)->group(function () {
         Route::get('/subadmin',  'index')->name('subadmin.index') ->middleware('check.permission:Sub Admins,view');

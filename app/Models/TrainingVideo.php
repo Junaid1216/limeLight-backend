@@ -9,4 +9,8 @@ class TrainingVideo extends Model
 {
     use HasFactory;
     protected $guarded = [];
+
+    protected $casts = [
+    'roles' => 'array',
+];
 }

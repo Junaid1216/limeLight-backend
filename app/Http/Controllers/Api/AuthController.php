@@ -17,14 +17,19 @@ class AuthController extends Controller
     public function register(Request $request)
     {
         try {
-            if ($request->type == 'customer') {
+            if ($request->type == 'staff') {
                 $request->validate([
-                    'email' => 'required|email|unique:users,email',
+                    'email' => 'required|email|unique:sale_staff,email',
                     'password' => 'required|string|min:8',
                 ]);
-            } elseif ($request->type == 'vendor') {
+            } elseif ($request->type == 'manager') {
                 $request->validate([
-                    'email' => 'required|email|unique:vendors,email',
+                    'email' => 'required|email|unique:branch_managers,email',
+                    'password' => 'required|string|min:8',
+                ]);
+            }  elseif ($request->type == 'asm') {
+                $request->validate([
+                    'email' => 'required|email|unique:area_sale_managers,email',
                     'password' => 'required|string|min:8',
                 ]);
             } else {
@@ -41,11 +46,11 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         try {
-            $request->validate([
-                'email' => 'required|email',
-                'password' => 'required|string',
-                'type' => 'required|in:customer,vendor',
-            ]);
+            // $request->validate([
+            //     'email' => 'required|email',
+            //     'password' => 'required|string',
+            //     'type' => 'required|in:asm,staff,manager',
+            // ]);
             $result = $this->authService->login($request->all());
             if (isset($result['error'])) {
                return ResponseHelper::error(null, $result['error'], 'error', 401);
@@ -61,10 +66,10 @@ class AuthController extends Controller
     public function sendOtp(Request $request)
     {
        try{
-             $request->validate([
-                'email' => 'required|email',
-                'type' => 'required|in:customer,vendor',
-            ]);
+            //  $request->validate([
+            //     'email' => 'required|email',
+            //     'type' => 'required|in:customer,vendor',
+            // ]);
             $data = $this->authService->sendOtp($request->all());
             return ResponseHelper::success($data, 'OTP send successfully to your email', 'success', 200);
        }catch (\Exception $e) {
@@ -75,11 +80,11 @@ class AuthController extends Controller
     public function verifyOtp(Request $request)
     {
         try {
-            $request->validate([
-                'email' => 'required|email',
-                'otp' => 'required|numeric',
-                'type' => 'required|in:customer,vendor',
-            ]);
+            // $request->validate([
+            //     'email' => 'required|email',
+            //     'otp' => 'required|numeric',
+            //     'type' => 'required|in:customer,vendor',
+            // ]);
             $result = $this->authService->verifyOtp($request->all());
             if (isset($result['error'])) {
                 return ResponseHelper::error(null, $result['error'], 'error', 401);
@@ -91,14 +96,30 @@ class AuthController extends Controller
             return ResponseHelper::error($e->getMessage(), 'An error occurred during OTP verification', 'error', 500);
         }
     }
+
+    public function resendOtp(Request $request)
+    {
+        try {
+
+            $data = $this->authService->resendOtp($request->all());
+
+            return ResponseHelper::success($data,'OTP resent successfully to your email','success',200);
+
+        } catch (\Exception $e) {
+
+            return ResponseHelper::error($e->getMessage(),'An error occurred while resending OTP','error',500);
+
+        }
+    }
+
     public function resetPassword(Request $request)
     {
         try {
-            $request->validate([
-                'email' => 'required|email',
-                'password' => 'required|string|min:8|confirmed',
-                'type' => 'required|in:customer,vendor',
-            ]);
+            // $request->validate([
+            //     'email' => 'required|email',
+            //     'password' => 'required|string|min:8|confirmed',
+            //     'type' => 'required|in:customer,vendor',
+            // ]);
             $result = $this->authService->resetPassword($request->all());
             if (isset($result['error'])) {
                 return ResponseHelper::error(null, $result['error'], 'error', 401);
@@ -127,6 +148,30 @@ class AuthController extends Controller
             if (!$user) {
                 return ResponseHelper::error(null, 'User not authenticated', 'error', 401);
             }
+             $designation = \App\Models\Designation::find($user->designation_id);
+
+            $user->designation_name = $designation->name ?? null;
+
+             if ($user instanceof \App\Models\BranchManager) {
+
+                $branch = \App\Models\Branch::find($user->branch_id);
+
+                $user->branch_name = $branch->name ?? null;
+
+                unset($user->branch_id);
+            }
+
+            // ASM → Region Name
+            if ($user instanceof \App\Models\AreaSaleManager) {
+
+                $region = \App\Models\Region::find($user->region_id);
+
+                $user->region_name = $region->name ?? null;
+
+                unset($user->region_id);
+            }
+
+            unset($user->designation_id);
             return ResponseHelper::success($user, 'Profile retrieved successfully', 'success', 200);
         } catch (\Exception $e) {
             return ResponseHelper::error($e->getMessage(), 'An error occurred while retrieving profile', 'error', 500);

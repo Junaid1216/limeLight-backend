@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\SaleStaff;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use App\Models\SaleStaff;
+use Laravel\Sanctum\HasApiTokens;
 
 class BranchManager extends Model
 {
-    use HasFactory;
+    use HasFactory,  HasApiTokens;
     protected $guarded = [];
 
     public function branch()
