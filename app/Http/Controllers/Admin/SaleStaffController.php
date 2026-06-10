@@ -4,24 +4,27 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AreaSaleManager;
+use App\Models\Branch;
 use App\Models\BranchManager;
 use App\Models\Designation;
 use App\Models\SaleStaff;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 use Illuminate\Validation\Rule;
 
 class SaleStaffController extends Controller
 {
     public function index()
     {
-        $salestaff = SaleStaff::latest()->get();
+        $salestaff = SaleStaff::with('branch')->latest()->get();
         return view('salestaff.index', compact('salestaff'));
     }
 
     public function create()
     {
         $designations = Designation::all();
-        return view('salestaff.create', compact('designations'));
+        $branches = Branch::all();
+        return view('salestaff.create', compact('designations', 'branches'));
     }
 
     public function store(Request $request)
@@ -30,7 +33,8 @@ class SaleStaffController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:sale_staff,email',
             'designation_id' => 'required',
-            // 'branch_id' => 'required',
+            'branch_id' => 'required',
+            'image' => 'required|max:2048',
             'employee_id' => [
             'required',
             Rule::unique('sale_staff', 'employee_id'),
@@ -47,6 +51,8 @@ class SaleStaffController extends Controller
         ],
         ],[
             'designation_id.required' => 'The designation field is required.',
+            'image.required' => 'The image field is required.',
+            'image.max' => 'The image must not be greater than 2MB.',
         ]);
 
          do {
@@ -57,13 +63,30 @@ class SaleStaffController extends Controller
 
          $password = '12345678';
 
+         if ($request->hasFile('image')) {
+
+            $file = $request->file('image');
+
+            $filename = time().'.'.$file->getClientOriginalExtension();
+
+            $file->move(public_path('admin/assets/images/users/'), $filename);
+
+            $image = 'public/admin/assets/images/users/'.$filename;
+
+        } else {
+
+            $image = 'public/admin/assets/images/avator.png';
+
+        }
+
         SaleStaff::create([
             'employee_id' => $request->employee_id,
             'name' => $request->name,
             'email' => $request->email,
             'password' => bcrypt($password),
             'designation_id' => $request->designation_id,
-            // 'branch_id' => $request->branch_id,
+            'branch_id' => $request->branch_id,
+            'image' => $image,
         ]);
 
         return redirect()->route('sale.staff.index')->with('success', 'Sales Staff Created Successfully');
@@ -72,9 +95,9 @@ class SaleStaffController extends Controller
     public function edit($id)
     {
         $salestaff = SaleStaff::findOrFail($id);
-        // $branches = Branch::all();
+        $branches = Branch::all();
         $designations = Designation::all();
-        return view('salestaff.edit', compact('salestaff', 'designations'));
+        return view('salestaff.edit', compact('salestaff', 'designations', 'branches'));
     }
 
     public function update(Request $request, $id)
@@ -85,7 +108,8 @@ class SaleStaffController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:sale_staff,email,' . $salestaff->id,
             'designation_id' => 'required',
-            // 'branch_id' => 'required',
+            'branch_id' => 'required',
+            'image' => 'required|max:2048',
              'employee_id' => [
                 'required',
                 Rule::unique('sale_staff', 'employee_id')->ignore($salestaff->id),
@@ -103,14 +127,32 @@ class SaleStaffController extends Controller
              
         ],[
             'designation_id.required' => 'The designation field is required.',
+            'image.required' => 'The image field is required.',
+            'image.max' => 'The image must not be greater than 2MB.',
         ]);
+        
+        $image = $salestaff->image;
 
+         if ($request->hasFile('image')) {
+            $destination = 'public/admin/assets/images/users/' . $salestaff->image;
+            if (File::exists($destination)) {
+                File::delete($destination);
+            }
+
+            $file = $request->file('image');
+            $extension = $file->getClientOriginalExtension();
+            $filename = time() . '.' . $extension;
+            $file->move('public/admin/assets/images/users', $filename);
+            $image = 'public/admin/assets/images/users/' . $filename;
+            $salestaff->image = $image;
+        }
         $salestaff->update([
             'employee_id' => $request->employee_id,
             'name' => $request->name,
             'email' => $request->email,
             'designation_id' => $request->designation_id,
-            // 'branch_id' => $request->branch_id,
+            'branch_id' => $request->branch_id,
+            'image' => $image,
         ]);
 
         return redirect()->route('sale.staff.index')->with('success', 'Sales Staff Updated Successfully');

@@ -9,6 +9,7 @@ use App\Models\BranchManager;
 use App\Models\Designation;
 use App\Models\SaleStaff;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 use Illuminate\Validation\Rule;
 
 class BranchManagerController extends Controller
@@ -33,6 +34,7 @@ class BranchManagerController extends Controller
             'email' => 'required|email|unique:branch_managers,email',
             'branch_id' => 'required',
             'designation_id' => 'required',
+            'image' => 'required|max:2048',
             'employee_id' => [
             'required',
             Rule::unique('branch_managers', 'employee_id'),
@@ -50,10 +52,28 @@ class BranchManagerController extends Controller
         ],
         [
             'designation_id.required' => 'The designation field is required.',
+            'image.required' => 'The image field is required.',
+            'image.max' => 'The image must not be greater than 2MB.',
         ]);
 
 
          $password = '12345678';
+
+          if ($request->hasFile('image')) {
+
+            $file = $request->file('image');
+
+            $filename = time().'.'.$file->getClientOriginalExtension();
+
+            $file->move(public_path('admin/assets/images/users/'), $filename);
+
+            $image = 'public/admin/assets/images/users/'.$filename;
+
+        } else {
+
+            $image = 'public/admin/assets/images/avator.png';
+
+        }
 
         BranchManager::create([
             'employee_id' => $request->employee_id,
@@ -62,6 +82,7 @@ class BranchManagerController extends Controller
             'password' => bcrypt($password),
             'branch_id' => $request->branch_id,
             'designation_id' => $request->designation_id,
+            'image' => $image,
         ]);
 
         return redirect()->route('branch.manager.index')->with('success', 'Branch Manager Created Successfully');
@@ -83,6 +104,7 @@ class BranchManagerController extends Controller
             'email' => 'required|email|unique:branch_managers,email,' . $id,
             'branch_id' => 'required',
             'designation_id' => 'required',
+            'image' => 'required|max:2048',
             'employee_id' => [
                 'required',
                 Rule::unique('branch_managers', 'employee_id')->ignore($branchmanager->id),
@@ -100,15 +122,32 @@ class BranchManagerController extends Controller
         ],
         [
             'designation_id.required' => 'The designation field is required.',
+            'image.required' => 'The image field is required.',
+            'image.max' => 'The image must not be greater than 2MB.',
         ]);
 
-        
+        $image = $branchmanager->image;
+
+         if ($request->hasFile('image')) {
+            $destination = 'public/admin/assets/images/users/' . $branchmanager->image;
+            if (File::exists($destination)) {
+                File::delete($destination);
+            }
+
+            $file = $request->file('image');
+            $extension = $file->getClientOriginalExtension();
+            $filename = time() . '.' . $extension;
+            $file->move('public/admin/assets/images/users', $filename);
+            $image = 'public/admin/assets/images/users/' . $filename;
+            $branchmanager->image = $image;
+        }
         $branchmanager->update([
             'employee_id' => $request->employee_id,
             'name' => $request->name,
             'email' => $request->email,
             'branch_id' => $request->branch_id,
             'designation_id' => $request->designation_id,
+            'image' => $image,
         ]);
 
         return redirect()->route('branch.manager.index')->with('success', 'Branch Manager Updated Successfully');

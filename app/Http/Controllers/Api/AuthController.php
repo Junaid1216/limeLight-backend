@@ -152,7 +152,7 @@ class AuthController extends Controller
 
             $user->designation_name = $designation->name ?? null;
 
-             if ($user instanceof \App\Models\BranchManager) {
+             if ($user instanceof \App\Models\BranchManager || $user instanceof \App\Models\SaleStaff) {
 
                 $branch = \App\Models\Branch::find($user->branch_id);
 

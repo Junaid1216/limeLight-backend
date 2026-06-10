@@ -3,7 +3,10 @@
 use App\Http\Controllers\Admin\SeoController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\EmailOtpController;
+use App\Http\Controllers\Api\FeedBackController;
 use App\Http\Controllers\Api\LineItemController;
+use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\TrainingVideoController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SideMenueController;
@@ -54,6 +57,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/changepassword', [AuthController::class, 'changePassword']);
     Route::get('/getprofile', [AuthController::class, 'getProfile']);
     Route::post('/logout', [AuthController::class, 'logout']);
+
+    // Sale Staff Feedback
+    Route::post('/staff-feedback', [FeedBackController::class, 'stafffeedback']);
+    // ASM Feedback
+    Route::post('/asm-feedback', [FeedBackController::class, 'asmfeedback']);
+
+    //Get training videos
+    Route::get('/training-videos', [TrainingVideoController::class, 'getTrainingVideos']);
+
+    //Notifications
+    Route::get('/notifications', [NotificationController::class, 'getUserNotifications']);
 });
 
 
