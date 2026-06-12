@@ -23,8 +23,9 @@
                                             <th>Employee ID</th>
                                             <th>Name</th>
                                             <th>Email</th>
+                                            <th>Branch</th>
                                             <th>Designation</th>
-                                            {{-- <th>Branch</th> --}}
+                                            <th>Image</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
@@ -35,8 +36,17 @@
                                                 <td>{{ $salestaffmember->employee_id ?? '-' }}</td>
                                                 <td>{{ $salestaffmember->name ?? '-' }}</td>
                                                 <td>{{ $salestaffmember->email ?? '-' }}</td>
+                                                <td>{{ $salestaffmember->branch->name ?? '-' }}</td>
                                                 <td>{{ $salestaffmember->designation->name ?? '-' }}</td>
-                                                {{-- <td>{{ $salestaffmember->branch->name ?? '-' }}</td> --}}
+                                                <td>
+                                                    @if ($salestaffmember->image && file_exists($salestaffmember->image))
+                                                        <img src="{{ asset($salestaffmember->image) }}" width="50"
+                                                            height="50" alt="Image">
+                                                    @else
+                                                        <img src="{{ asset('public/admin/assets/images/avator.png') }}"
+                                                            width="50" height="50" alt="Default Image">
+                                                    @endif
+                                                </td>
                                                 <td style="vertical-align: middle;">
                                                     <div class="d-flex align-items-center" style="gap: 6px;">
                                                         @if (Auth::guard('admin')->check() ||

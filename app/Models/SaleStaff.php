@@ -15,4 +15,9 @@ class SaleStaff extends Model
     {
         return $this->belongsTo(Designation::class);
     }
+
+    public function branch()
+    {
+        return $this->belongsTo(Branch::class, 'branch_id');
+    }
 }

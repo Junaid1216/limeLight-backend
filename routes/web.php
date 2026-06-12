@@ -20,6 +20,7 @@ use App\Http\Controllers\Admin\SecurityController;
 use App\Http\Controllers\Admin\SeoController;
 use App\Http\Controllers\Admin\SlabController;
 use App\Http\Controllers\Admin\SubAdminController;
+use App\Http\Controllers\Admin\SurveyController;
 use App\Http\Controllers\Admin\TargetController;
 use App\Http\Controllers\Admin\TestingVideoController;
 use App\Http\Controllers\Admin\TrainingVideoController;
@@ -220,10 +221,18 @@ Route::get('/slab', [SlabController::class, 'index'])->name('slab.index')->middl
 Route::post('/slab-store', [SlabController::class, 'store'])->name('slip.incentive.store')->middleware('check.permission:Slip Bound Incentives,edit');
 
 // ############ Training Video #################
-Route::get('/training_video',[TrainingVideoController::class, 'index'])->name('training.video.index')->middleware('check.permission:Training Videos,view');
-Route::post('/training_video-store',[TrainingVideoController::class, 'store'])->name('training.video.store')->middleware('check.permission:Training Videos,create');
-Route::post('/training_video-update/{id}',[TrainingVideoController::class, 'update'])->name('training.video.update')->middleware('check.permission:Training Videos,edit');
-Route::delete('/training_video-destroy/{id}',[TrainingVideoController::class, 'delete'])->name('training.video.delete')->middleware('check.permission:Training Videos,delete');
+Route::get('/training_module',[TrainingVideoController::class, 'index'])->name('training.video.index')->middleware('check.permission:Training Modules,view');
+Route::post('/training_module-store',[TrainingVideoController::class, 'store'])->name('training.video.store')->middleware('check.permission:Training Modules,create');
+Route::post('/training_module-update/{id}',[TrainingVideoController::class, 'update'])->name('training.video.update')->middleware('check.permission:Training Modules,edit');
+Route::delete('/training_module-destroy/{id}',[TrainingVideoController::class, 'delete'])->name('training.video.delete')->middleware('check.permission:Training Modules,delete');
+
+// ############ Survey ##################
+Route::get('/surveys', [SurveyController::class, 'index'])->name('survey.index')->middleware('check.permission:Surveys,view');
+Route::post('/surveys/store', [SurveyController::class, 'store'])->name('survey.store')->middleware('check.permission:Surveys,create');
+Route::post('/surveys/update/{id}', [SurveyController::class, 'update'])->name('survey.update')->middleware('check.permission:Surveys,edit');
+Route::delete('/surveys/destroy/{id}', [SurveyController::class, 'delete'])->name('survey.destroy')->middleware('check.permission:Surveys,delete');
+
+
 
 
     // ############ Sub Admin #################

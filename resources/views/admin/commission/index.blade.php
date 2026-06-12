@@ -10,7 +10,7 @@
             {{-- Add Commission Card --}}
             <div class="card">
                 <div class="card-header">
-                    <h4>Add Commission <small class="font-weight-bold text-danger"> (Entity Sale Price × Admin-defined Commission = Commission per item/sale)</small></h4>
+                    <h4>Add Commission <small class="font-weight-bold text-danger"> Commission per Item/Sale = Entity Sale Price × (Admin-defined Commission % ÷ 100)</small></h4>
                 </div>
 
                 <form action="{{ route('commission.store') }}" method="POST">

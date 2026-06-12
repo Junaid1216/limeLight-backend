@@ -172,11 +172,21 @@
             @endif
 
              @if (Auth::guard('admin')->check() ||
-                    ($sideMenuPermissions->has('Training Videos') && $sideMenuPermissions['Training Videos']->contains('view')))
-                <li class="dropdown {{ request()->is('admin/training_video') || request()->is('admin/training_video/*') ? 'active' : ''}}">
-                    <a href="{{ url('admin/training_video') }}" class="nav-link">
+                    ($sideMenuPermissions->has('Training Modules') && $sideMenuPermissions['Training Modules']->contains('view')))
+                <li class="dropdown {{ request()->is('admin/training_module') || request()->is('admin/training_module/*') ? 'active' : ''}}">
+                    <a href="{{ url('admin/training_module') }}" class="nav-link">
                         <i data-feather="video"></i>
-                        <span>Training Videos</span>
+                        <span>Training Modules</span>
+                    </a>
+                </li>
+            @endif
+
+             @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Surveys') && $sideMenuPermissions['Surveys']->contains('view')))
+                <li class="dropdown {{ request()->is('admin/surveys') || request()->is('admin/surveys/*') ? 'active' : ''}}">
+                    <a href="{{ url('admin/surveys') }}" class="nav-link">
+                        <i data-feather="clipboard"></i>
+                        <span>Surveys</span>
                     </a>
                 </li>
             @endif

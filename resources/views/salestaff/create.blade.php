@@ -50,6 +50,30 @@
                                         </div>
                                     </div>
 
+                                     <div class="col-sm-6 pl-sm-0 pr-sm-3">
+                                        <div class="form-group">
+                                            <label for="branch_id">Select Branch <span style="color: red;">*</span></label>
+                                            <select class="form-control @error('branch_id') is-invalid @enderror" 
+                                                    id="branch_id"
+                                                    name="branch_id" required>
+
+                                                <option value="" disabled selected>-- Select branch --</option>
+
+                                                @foreach ($branches as $branch)
+                                                    <option value="{{ $branch->id }}"
+                                                        {{ old('branch_id') == $branch->id ? 'selected' : '' }}>
+                                                        {{ $branch->name }}
+                                                    </option>
+                                                @endforeach
+
+                                            </select>
+
+                                            @error('branch_id')
+                                                <div class="invalid-feedback">{{ $message }}</div>
+                                            @enderror
+                                        </div>
+                                    </div>
+
                                     <div class="col-sm-6 pl-sm-0 pr-sm-3">
                                         <div class="form-group">
                                             <label for="designation_id">Select Designation <span style="color: red;">*</span></label>
@@ -69,6 +93,18 @@
                                             </select>
 
                                             @error('designation_id')
+                                                <div class="invalid-feedback">{{ $message }}</div>
+                                            @enderror
+                                        </div>
+                                    </div>
+
+                                    <div class="col-sm-6 pl-sm-0 pr-sm-3">
+                                        <div class="form-group">
+                                            <label for="image">Image <span style="color: red;">*</span></label>
+                                            <input type="file" class="form-control @error('image') is-invalid @enderror"
+                                                id="image" name="image" >
+                                            <small class="text-danger">Note: Maximum image size allowed is 2MB</small>
+                                            @error('image')
                                                 <div class="invalid-feedback">{{ $message }}</div>
                                             @enderror
                                         </div>

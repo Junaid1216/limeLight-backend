@@ -25,6 +25,7 @@
                                             <th>Email</th>
                                             <th>Branch</th>
                                             <th>Designation</th>
+                                            <th>Image</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
@@ -37,6 +38,15 @@
                                                 <td>{{ $branchmanager->email ?? '-' }}</td>
                                                 <td>{{ $branchmanager->branch->name ?? '-' }}</td>
                                                 <td>{{ $branchmanager->designation->name ?? '-' }}</td>
+                                                <td>
+                                                    @if ($branchmanager->image && file_exists($branchmanager->image))
+                                                        <img src="{{ asset($branchmanager->image) }}" width="50"
+                                                            height="50" alt="Image">
+                                                    @else
+                                                        <img src="{{ asset('public/admin/assets/images/avator.png') }}"
+                                                            width="50" height="50" alt="Default Image">
+                                                    @endif
+                                                </td>
                                                 <td style="vertical-align: middle;">
                                                     <div class="d-flex align-items-center" style="gap: 6px;">
                                                         @if (Auth::guard('admin')->check() ||

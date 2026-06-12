@@ -110,6 +110,23 @@
                                         </div>
                                     </div>
 
+                                    <div class="col-sm-6">
+                                        <div class="form-group">
+                                            <label for="image">Image <span style="color: red;">*</span></label>
+                                            <input type="file" class="form-control @error('image') is-invalid @enderror"
+                                                name="image" id="image">
+                                            <small class="text-danger">Note: Maximum image size allowed is 2MB</small>
+                                            @if ($asm->image)
+                                                <div class="mt-2">
+                                                    <img src="{{ asset($asm->image) }}" width="100">
+                                                </div>
+                                            @endif
+                                            @error('image')
+                                                <div class="invalid-feedback">{{ $message }}</div>
+                                            @enderror
+                                        </div>
+                                    </div>
+
 
                                     <!-- Submit Button -->
                                     <div class="card-footer text-center row">

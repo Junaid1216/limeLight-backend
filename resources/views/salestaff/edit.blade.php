@@ -55,7 +55,7 @@
                                     </div>
 
                                         <!-- Region Field -->
-                                        {{-- <div class="col-sm-6 pl-sm-0 pr-sm-3">
+                                        <div class="col-sm-6 pl-sm-0 pr-sm-3">
                                             <div class="form-group">
                                                 <label for="branch_id">Select Branch <span style="color: red;">*</span></label>
                                                 <select class="form-control @error('branch_id') is-invalid @enderror"
@@ -72,7 +72,7 @@
                                                     <div class="invalid-feedback">{{ $message }}</div>
                                                 @enderror
                                             </div>
-                                        </div> --}}
+                                        </div>
 
                                         <div class="col-sm-6 pl-sm-0 pr-sm-3">
                                             <div class="form-group">
@@ -104,6 +104,23 @@
                                             <span class="fa fa-eye toggle-password position-absolute"
                                                 style="top: 42px; right: 15px; cursor: pointer;"></span>
                                             @error('password')
+                                                <div class="invalid-feedback">{{ $message }}</div>
+                                            @enderror
+                                        </div>
+                                    </div>
+
+                                     <div class="col-sm-6">
+                                        <div class="form-group">
+                                            <label for="image">Image <span style="color: red;">*</span></label>
+                                            <input type="file" class="form-control @error('image') is-invalid @enderror"
+                                                name="image" id="image">
+                                            <small class="text-danger">Note: Maximum image size allowed is 2MB</small>
+                                            @if ($salestaff->image)
+                                                <div class="mt-2">
+                                                    <img src="{{ asset($salestaff->image) }}" width="100">
+                                                </div>
+                                            @endif
+                                            @error('image')
                                                 <div class="invalid-feedback">{{ $message }}</div>
                                             @enderror
                                         </div>

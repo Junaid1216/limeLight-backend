@@ -24,8 +24,8 @@
                                     <thead>
                                         <tr>
                                             <th>Slab</th>
-                                            <th>From Amount</th>
-                                            <th>To Amount</th>
+                                            <th>From Amount (PKR)</th>
+                                            <th>To Amount (PKR)</th>
                                             <th>Incentive (PKR)</th>
                                         </tr>
                                     </thead>

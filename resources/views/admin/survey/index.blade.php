@@ -1,5 +1,5 @@
 @extends('admin.layout.app')
-@section('title', 'Training Modules')
+@section('title', 'Surveys')
 
 @section('content')
 <div class="main-content">
@@ -14,20 +14,18 @@
 
                         <div class="card-header">
                             <h4>
-                                Training Modules
+                                Surveys
                             </h4>
                         </div>
 
-                        <form action="{{ route('training.video.store') }}" method="POST" enctype="multipart/form-data">
+                        <form action="{{ route('survey.store') }}" method="POST" enctype="multipart/form-data">
                             @csrf
-
                             <input type="hidden" name="id" id="video_id">
-
                             <div class="card-body pb-1">
 
                                 <div class="row">
 
-                                    <div class="col-md-4">
+                                    <div class="col-md-6">
                                         <div class="form-group">
                                             <label>Role <span style="color: red;">*</span></label>
 
@@ -57,63 +55,18 @@
                                         </div>
                                     </div>
 
-                                    <div class="col-md-4">
+                                    <div class="col-md-6">
                                         <div class="form-group">
-                                            <label>Title <span style="color: red;">*</span></label>
+                                            <label>Question <span style="color: red;">*</span></label>
 
                                             <input type="text"
-                                                   name="title"
-                                                   id="title"
+                                                   name="question"
+                                                   id="question"
                                                    class="form-control"
                                                    required>
                                         </div>
                                     </div>
-                                     <div class="col-md-4">
-                                                <div class="form-group">
-                                                    <label>Image</label>
-
-                                                    <input type="file"
-                                                        name="image"
-                                                        id="image"
-                                                        class="form-control"
-                                                        accept="image/*">
-                                                </div>
-                                            </div>
-
-                                            <div class="col-md-6">
-                                                <div class="form-group">
-                                                    <label>Audio</label>
-
-                                                    <input type="file"
-                                                        name="audio"
-                                                        id="audio"
-                                                        class="form-control"
-                                                        accept="audio/*">
-                                                </div>
-                                            </div>
-
-                                    <div class="col-md-6">
-                                        <div class="form-group">
-                                            <label>Video URL</label>
-
-                                            <input type="text"
-                                                   name="video_url"
-                                                   id="video_url"
-                                                   class="form-control"
-                                                   placeholder="Enter Video URL">
-                                        </div>
-                                    </div>
-
-                                    <div class="col-md-12">
-                                        <div class="form-group mb-0">
-                                            <label>Description <span style="color: red;">*</span></label>
-
-                                            <textarea name="description"
-                                                      id="description"
-                                                      rows="3"
-                                                      class="form-control"></textarea>
-                                        </div>
-                                    </div>
+                                     
 `
                                 </div>
 
@@ -133,7 +86,7 @@
                     <div class="card">
 
                         <div class="card-header">
-                            <h4>Training Module List</h4>
+                            <h4>Survey List</h4>
                         </div>
 
                         <div class="card-body table-responsive">
@@ -144,77 +97,40 @@
                                     <tr>
                                         <th>Sr.</th>
                                         <th>Role</th>
-                                        <th>Title</th>
-                                        <th>Video</th>
-                                        <th>Description</th>
-                                        <th>Image</th>
-                                        <th>Audio</th>
+                                        <th>Question</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
 
                                 <tbody>
 
-                                    @foreach($videos as $video)
+                                    @foreach($surveys as $survey)
 
                                     <tr>
 
                                         <td>{{ $loop->iteration }}</td>
 
                                         <td>
-                                                 {{ collect($video->roles)
+                                                 {{ collect($survey->roles)
                                                 ->map(fn($role) => ucwords(str_replace('_',' ',$role)))
                                                 ->implode(', ') }}
                                             
                                         </td>
 
-                                        <td>{{ $video->title }}</td>
+                                        <td>{{ $survey->question }}</td>
 
-                                        <td>
-                                            @if($video->video_url)
-                                            <a href="{{ $video->video_url }}"
-                                               target="_blank"
-                                               class="btn btn-primary btn-sm">
-                                                View
-                                            </a>
-                                            @else
-                                            N/A
-                                            @endif
-                                        </td>
-
-                                        <td>{{ $video->description }}</td>
-                                        <td>
-                                                    @if ($video->image && file_exists($video->image))
-                                                        <img src="{{ asset($video->image) }}" width="50"
-                                                            height="50" alt="Image">
-                                                    @else
-                                                        <img src="{{ asset('public/admin/assets/images/avator.png') }}"
-                                                            width="50" height="50" alt="Default Image">
-                                                    @endif
-                                                </td>
-
-                                        <td>
-                                            @if($video->audio)
-                                                <audio controls style="width:200px;">
-                                                    <source src="{{ asset($video->audio) }}">
-                                                </audio>
-                                                @else
-                                                N/A
-                                            @endif
-                                        </td>
+                                      
 
                                         <td>
                                             <div class="d-flex align-items-center" style="gap: 6px;">
                                             @if (Auth::guard('admin')->check() ||
-                                                                ($sideMenuPermissions->has('Training Modules') && $sideMenuPermissions['Training Modules']->contains('edit')))
+                                                                ($sideMenuPermissions->has('Surveys') && $sideMenuPermissions['Surveys']->contains('edit')))
                                             <button
                                                 type="button"
                                                 class="btn btn-primary btn-sm editVideo"
-                                                data-id="{{ $video->id }}"
-                                                data-roles='@json($video->roles)'
-                                                data-title="{{ $video->title }}"
-                                                data-video="{{ $video->video_url }}"
-                                                data-description="{{ $video->description }}">
+                                                data-id="{{ $survey->id }}"
+                                                data-roles='@json($survey->roles)'
+                                                data-question="{{ $survey->question }}">
 
                                                 <i class="fa fa-edit"></i>
 
@@ -222,9 +138,9 @@
                                             @endif
 
                                              @if (Auth::guard('admin')->check() ||
-                                                                ($sideMenuPermissions->has('Training Modules') && $sideMenuPermissions['Training Modules']->contains('delete')))
-                                                            <form id="delete-form-{{ $video->id }}"
-                                                                action="{{ route('training.video.delete', $video->id) }}"
+                                                                ($sideMenuPermissions->has('Surveys') && $sideMenuPermissions['Surveys']->contains('delete')))
+                                                            <form id="delete-form-{{ $survey->id }}"
+                                                                action="{{ route('survey.destroy', $survey->id) }}"
                                                                 method="POST">
                                                                 @csrf
                                                                 @method('DELETE')
@@ -232,7 +148,7 @@
 
                                                             <button class="show_confirm btn p-2"
                                                                 style="background-color: #609b90;"
-                                                                data-form="delete-form-{{ $video->id }}" type="button">
+                                                                data-form="delete-form-{{ $survey->id }}" type="button">
                                                                 <i class="fa fa-trash"></i>
                                                             </button>
                                                     @endif
@@ -273,7 +189,7 @@ $(document).ready(function(){
     $('#table_id_events').DataTable();
 
     $('.editVideo').click(function(){
-
+        console.log($(this).data('id'))
         $('#video_id').val($(this).data('id'));
 
         let roles = $(this).attr('data-roles');
@@ -282,11 +198,7 @@ $(document).ready(function(){
 
         $('#roles').val(roles).trigger('change');
 
-        $('#title').val($(this).data('title'));
-
-        $('#video_url').val($(this).data('video'));
-
-        $('#description').val($(this).data('description'));
+        $('#question').val($(this).data('question'));
 
         $('html, body').animate({
             scrollTop: 0
@@ -315,7 +227,7 @@ $(document).ready(function(){
 
                 Swal.fire({
                     title: 'Are you sure you want to delete this record?',
-                    text: "If you delete this Training Module record, it will be gone forever.",
+                    text: "If you delete this Survey record, it will be gone forever.",
                     icon: 'warning',
                     showCancelButton: true,
                     confirmButtonColor: '#3085d6',

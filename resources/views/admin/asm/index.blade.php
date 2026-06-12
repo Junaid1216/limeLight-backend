@@ -25,6 +25,7 @@
                                             <th>Email</th>
                                             <th>Region</th>
                                             <th>Designation</th>
+                                            <th>Image</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
@@ -37,6 +38,15 @@
                                                 <td>{{ $asm->email ?? '-' }}</td>
                                                 <td>{{ $asm->region->name ?? '-' }}</td>
                                                 <td>{{ $asm->designation->name ?? '-' }}</td>
+                                                <td>
+                                                    @if ($asm->image && file_exists($asm->image))
+                                                        <img src="{{ asset($asm->image) }}" width="50"
+                                                            height="50" alt="Image">
+                                                    @else
+                                                        <img src="{{ asset('public/admin/assets/images/avator.png') }}"
+                                                            width="50" height="50" alt="Default Image">
+                                                    @endif
+                                                </td>
                                                 <td style="vertical-align: middle;">
                                                     <div class="d-flex align-items-center" style="gap: 6px;">
                                                         @if (Auth::guard('admin')->check() ||
