@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\EmailOtpController;
 use App\Http\Controllers\Api\FeedBackController;
 use App\Http\Controllers\Api\LineItemController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\SurveyController;
 use App\Http\Controllers\Api\TrainingVideoController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\RoleController;
@@ -62,6 +63,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/staff-feedback', [FeedBackController::class, 'stafffeedback']);
     // ASM Feedback
     Route::post('/asm-feedback', [FeedBackController::class, 'asmfeedback']);
+
+    // survey questions
+    Route::get('/survey-questions/{role}', [SurveyController::class, 'getSurveyQuestions']);
 
     //Get training videos
     Route::get('/training-videos', [TrainingVideoController::class, 'getTrainingVideos']);
