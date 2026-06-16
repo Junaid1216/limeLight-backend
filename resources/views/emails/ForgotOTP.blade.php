@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Password Reset OTP - {{ $headerTitle }}</title>
+    <title>Password Reset OTP - Limelight</title>
 </head>
 <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
     <div style="text-align: center; margin-bottom: 30px;">
@@ -26,7 +26,7 @@
 
     <p>
         Thanks,<br>
-        <strong>{{ $headerTitle }}</strong>
+        <strong>Limelight</strong>
     </p>
 </body>
 </html>

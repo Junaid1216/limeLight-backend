@@ -22,6 +22,6 @@
     <p>If you did not request a password reset, please ignore this email.</p>
 
     <p>Thanks,<br>
-    <strong>Common</strong></p>
+    <strong>Limelight</strong></p>
 </body>
 </html>

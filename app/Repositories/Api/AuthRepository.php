@@ -135,7 +135,7 @@ class AuthRepository implements AuthRepositoryInterface
         if (!$user) {
             return ['error' => ucfirst($request['type']) . ' not found'];
         }
-        $otp = rand(1000, 9999);
+        $otp = rand(100000, 999999);
         $user->otp = $otp;
         $user->save();
         // Mail::to($user->email)->send(new ForgotOTPMail($otp));
@@ -197,7 +197,7 @@ class AuthRepository implements AuthRepositoryInterface
         return ['error' => ucfirst($request['type']) . ' not found'];
     }
 
-    $otp = rand(1000, 9999);
+    $otp = rand(100000, 999999);
 
     $user->otp = $otp;
 
