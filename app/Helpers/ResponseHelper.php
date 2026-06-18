@@ -4,10 +4,10 @@ namespace App\Helpers;
 
 class ResponseHelper
 {
-     public static function success($data = '', $message = '', $status = '', $statusCode = 200) {
+     public static function success($data = '', $message = '', $status = '200', $statusCode = 200) {
         $statusCode = (int) $statusCode;
         $response = [
-            'status' => $status ?: 'success',
+            'status' => $status ?: '200',
             'message' => $message,
         ];
 

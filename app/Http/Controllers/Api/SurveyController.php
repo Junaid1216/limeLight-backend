@@ -15,7 +15,7 @@ class SurveyController extends Controller
         ->get();
 
     return response()->json([
-        'status' => true,
+        'status' => '200',
         'message' => 'Survey questions retrieved successfully',
         'data' => $surveys
     ]);

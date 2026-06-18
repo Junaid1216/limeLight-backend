@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Feedback;
+use App\Models\FeedBack;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -19,7 +19,7 @@ class FeedBackController extends Controller
     //     'feedback'  => 'required',
     // ]);
 
-    $feedback = Feedback::create([
+    $feedback = FeedBack::create([
         'code'      => $request->code,
         'name'      => $request->name,
         'branch_name' => $request->branch_name,
@@ -27,7 +27,7 @@ class FeedBackController extends Controller
     ]);
 
     return response()->json([
-        'status'  => true,
+        'status'  => '200',
         'message' => 'Feedback submitted successfully',
         'data'    => $feedback
     ]);
@@ -43,7 +43,7 @@ public function asmfeedback(Request $request)
     //     'feedback'  => 'required',
     // ]);
 
-    $feedback = Feedback::create([
+    $feedback = FeedBack::create([
         'code'      => $request->code,
         'name'      => $request->name,
         'region_name' => $request->region_name,
@@ -51,7 +51,7 @@ public function asmfeedback(Request $request)
     ]);
 
     return response()->json([
-        'status'  => true,
+        'status'  => '200',
         'message' => 'Feedback submitted successfully',
         'data'    => $feedback
     ]);

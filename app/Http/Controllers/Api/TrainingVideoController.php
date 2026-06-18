@@ -29,7 +29,7 @@ class TrainingVideoController extends Controller
         return ResponseHelper::success(
             $videos,
             'Training videos retrieved successfully',
-            'true',
+            '200',
             200
         );
 

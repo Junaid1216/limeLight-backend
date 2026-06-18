@@ -55,7 +55,7 @@ class AuthController extends Controller
             if (isset($result['error'])) {
                return ResponseHelper::error(null, $result['error'], 'error', 401);
             }
-               return ResponseHelper::success($result,'Login successful','success', 200);
+               return ResponseHelper::success($result,'Login successful','200', 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
                return ResponseHelper::error($e->errors(),'Validation failed','error', 422);
         } catch (\Exception $e) {
@@ -71,7 +71,7 @@ class AuthController extends Controller
             //     'type' => 'required|in:customer,vendor',
             // ]);
             $data = $this->authService->sendOtp($request->all());
-            return ResponseHelper::success($data, 'OTP send successfully to your email', 'success', 200);
+            return ResponseHelper::success($data, 'OTP send successfully to your email', '200', 200);
        }catch (\Exception $e) {
             return ResponseHelper::error($e->getMessage(), 'An error occurred while sending OTP', 'error', 500);
         }
@@ -89,7 +89,7 @@ class AuthController extends Controller
             if (isset($result['error'])) {
                 return ResponseHelper::error(null, $result['error'], 'error', 401);
             }
-            return ResponseHelper::success($result, 'OTP verified successfully', 'success', 200);
+            return ResponseHelper::success($result, 'OTP verified successfully', '200', 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return ResponseHelper::error($e->errors(), 'Validation failed', 'error', 422);
         } catch (\Exception $e) {
@@ -103,7 +103,7 @@ class AuthController extends Controller
 
             $data = $this->authService->resendOtp($request->all());
 
-            return ResponseHelper::success($data,'OTP resent successfully to your email','success',200);
+            return ResponseHelper::success($data,'OTP resent successfully to your email','200',200);
 
         } catch (\Exception $e) {
 
@@ -124,7 +124,7 @@ class AuthController extends Controller
             if (isset($result['error'])) {
                 return ResponseHelper::error(null, $result['error'], 'error', 401);
             }
-            return ResponseHelper::success($result, 'Password reset successful', 'success', 200);
+            return ResponseHelper::success($result, 'Password reset successful', '200', 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return ResponseHelper::error($e->errors(), 'Validation failed', 'error', 422);
         } catch (\Exception $e) {
@@ -137,7 +137,7 @@ class AuthController extends Controller
             if (isset($result['error'])) {
                 return ResponseHelper::error(null, $result['error'], 'error', 401);
             }
-            return ResponseHelper::success(null, 'Logout successful', 'success', 200);
+            return ResponseHelper::success(null, 'Logout successful', '200', 200);
         } catch (\Exception $e) {
             return ResponseHelper::error($e->getMessage(), 'An error occurred during logout', 'error', 500);
         }
@@ -172,7 +172,7 @@ class AuthController extends Controller
             }
 
             unset($user->designation_id);
-            return ResponseHelper::success($user, 'Profile retrieved successfully', 'success', 200);
+            return ResponseHelper::success($user, 'Profile retrieved successfully', '200', 200);
         } catch (\Exception $e) {
             return ResponseHelper::error($e->getMessage(), 'An error occurred while retrieving profile', 'error', 500);
         }
@@ -201,7 +201,7 @@ class AuthController extends Controller
             if (isset($result['error'])) {
                 return ResponseHelper::error(null, $result['error'], 'error', 401);
             }
-            return ResponseHelper::success($result, 'Profile updated successfully', 'success', 200);
+            return ResponseHelper::success($result, 'Profile updated successfully', '200', 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return ResponseHelper::error($e->errors(), 'Validation failed', 'error', 422);
         } catch (\Exception $e) {
@@ -216,7 +216,7 @@ class AuthController extends Controller
             if (isset($result['error'])) {
                 return ResponseHelper::error(null, $result['error'], 'error', 401);
             }
-            return ResponseHelper::success($result, 'Password changed successfully', 'success', 200);
+            return ResponseHelper::success($result, 'Password changed successfully', '200', 200);
         }  catch (\Exception $e) {
             return ResponseHelper::error($e->getMessage(), 'An error occurred during password change', 'error', 500);
         }

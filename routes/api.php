@@ -57,7 +57,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/resetpassword', [AuthController::class, 'resetPassword']);
     Route::post('/changepassword', [AuthController::class, 'changePassword']);
     Route::get('/getprofile', [AuthController::class, 'getProfile']);
-    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::delete('/logout', [AuthController::class, 'logout']);
 
     // Sale Staff Feedback
     Route::post('/staff-feedback', [FeedBackController::class, 'stafffeedback']);
