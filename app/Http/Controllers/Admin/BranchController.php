@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\City;
+use App\Models\Region;
 use Illuminate\Http\Request;
 
 class BranchController extends Controller
@@ -18,7 +19,8 @@ class BranchController extends Controller
     public function create()
     {
         $cities = City::all();
-        return view('admin.branch.create', compact('cities'));
+        $regions = Region::all();
+        return view('admin.branch.create', compact('cities', 'regions'));
     }
 
     public function store(Request $request)
@@ -26,12 +28,14 @@ class BranchController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'city' => 'required|string|max:255',
+            'region' => 'required',
             'address' => 'nullable|string|max:255',
         ]);
 
         Branch::create([
             'name' => $request->name,
             'city' => $request->city,
+            'region_id' => $request->region,
             'address' => $request->address,
         ]);
 
@@ -42,7 +46,8 @@ class BranchController extends Controller
     {
         $branch = Branch::findOrFail($id);
         $cities = City::all();
-        return view('admin.branch.edit', compact('branch','cities'));
+        $regions = Region::all();
+        return view('admin.branch.edit', compact('branch','cities', 'regions'));
     }
 
     public function update(Request $request, $id)
@@ -50,6 +55,7 @@ class BranchController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'city' => 'required|string|max:255',
+            'region' => 'required',
             'address' => 'nullable|string|max:255',
         ]);
 
@@ -57,6 +63,7 @@ class BranchController extends Controller
         $branch->update([
             'name' => $request->name,
             'city' => $request->city,
+            'region_id' => $request->region,
             'address' => $request->address,
         ]);
 

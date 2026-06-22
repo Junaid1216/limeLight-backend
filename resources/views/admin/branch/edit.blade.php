@@ -82,6 +82,44 @@
                                         </div>
                                     </div>
 
+                                     <div class="col-sm-6 pl-sm-0 pr-sm-3">
+                                        <div class="form-group">
+
+                                            <label for="region">
+                                                Region <span style="color: red;">*</span>
+                                            </label>
+
+                                            <select
+                                                class="form-control @error('region') is-invalid @enderror"
+                                                id="region"
+                                                name="region"
+                                                required
+                                            >
+
+                                                <option value="">Select Region</option>
+
+                                                @foreach($regions as $region)
+
+                                                    <option
+                                                         value="{{ $region->id }}"
+                                                         {{ old('region_id', $branch->region_id) == $region->id ? 'selected' : '' }}
+                                                    >
+                                                        {{ $region->name }}
+                                                    </option>
+
+                                                @endforeach
+
+                                            </select>
+
+                                            @error('region')
+                                                <div class="invalid-feedback">
+                                                    {{ $message }}
+                                                </div>
+                                            @enderror
+
+                                        </div>
+                                    </div>
+
                                     <!-- Submit Button -->
                                     <div class="card-footer text-center row">
                                         <div class="col-12">

@@ -218,6 +218,7 @@ $(document).ready(function () {
 
     let regionId = $(this).val();
 
+
     // Reset dropdowns
     $('#asm_id').html('<option value="">Loading...</option>');
     $('#branch_id').html('<option value="">Loading...</option>');
@@ -258,19 +259,22 @@ $(document).ready(function () {
     // LOAD BRANCHES
     // ========================
 
-let options = '<option value="">Select Branch</option>';
+ $.ajax({
+        url: "{{ url('admin/get-region-branches') }}/" + regionId,
+        type: 'GET',
+        success: function(response) {
 
-@foreach($branches as $branch)
+            console.log(response);
 
-    options += `
-        <option value="{{ $branch->id }}">
-            {{ $branch->name }}
-        </option>
-    `;
+            let options = '<option value="">Select Branch</option>';
 
-@endforeach
+            response.forEach(function(branch) {
+                options += `<option value="${branch.id}">${branch.name}</option>`;
+            });
 
-$('#branch_id').html(options);
+            $('#branch_id').html(options);
+        }
+    });
 
 });
     // =========================================

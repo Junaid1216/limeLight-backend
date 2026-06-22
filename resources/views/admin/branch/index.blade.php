@@ -23,6 +23,7 @@
                                             <th>Name</th>
                                             <th>City</th>
                                             <th>Address</th>
+                                            <th>Region</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
@@ -33,6 +34,7 @@
                                                 <td>{{ $branch->name ?? '-' }}</td>
                                                 <td>{{ $branch->city ?? '-' }}</td>
                                                 <td>{{ $branch->address ?? '-' }}</td>
+                                                <td>{{ $branch->region->name ?? '-' }}</td>
                                                 <td style="vertical-align: middle;">
                                                     <div class="d-flex align-items-center" style="gap: 6px;">
                                                         @if (Auth::guard('admin')->check() ||

@@ -81,13 +81,7 @@ public function store(Request $request)
 
 public function getRegionBranches($regionId)
 {
-    $region = Region::find($regionId);
-
-    if (!$region) {
-        return response()->json([]);
-    }
-
-    $branches = Branch::where('city', $region->name)->get();
+    return Branch::where('region_id', $regionId)->get();
 
     return response()->json($branches);
 }
