@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\FaqController;
 use App\Http\Controllers\Admin\HierarchyController;
 use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\RegionController;
+use App\Http\Controllers\Admin\ReportingController;
 use App\Http\Controllers\Admin\RolePermissionController;
 use App\Http\Controllers\Admin\SaleStaffController;
 use App\Http\Controllers\Admin\SecurityController;
@@ -233,7 +234,8 @@ Route::post('/surveys/update/{id}', [SurveyController::class, 'update'])->name('
 Route::delete('/surveys/destroy/{id}', [SurveyController::class, 'delete'])->name('survey.destroy')->middleware('check.permission:Surveys,delete');
 
 
-
+// ############ Reporting #################
+Route::get('/reporting', [ReportingController::class, 'index'])->name('reporting.index')->middleware('check.permission:Reportings,view');
 
     // ############ Sub Admin #################
     Route::controller(SubAdminController::class)->group(function () {

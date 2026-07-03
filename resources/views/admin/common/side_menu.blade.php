@@ -191,6 +191,16 @@
                 </li>
             @endif
 
+            @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Reportings') && $sideMenuPermissions['Reportings']->contains('view')))
+                <li class="dropdown {{ request()->is('admin/reporting') || request()->is('admin/reporting/*') ? 'active' : ''}}">
+                    <a href="{{ url('admin/reporting') }}" class="nav-link">
+                        <i data-feather="bar-chart-2"></i>
+                        <span>Reportings</span>
+                    </a>
+                </li>
+            @endif
+
 
             {{--  Blogs --}}
 
