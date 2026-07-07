@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\LineItemController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\SurveyController;
 use App\Http\Controllers\Api\TrainingVideoController;
+use App\Http\Controllers\Api\MonthlyTargetController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SideMenueController;
@@ -69,6 +70,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //Get training videos
     Route::get('/training-videos', [TrainingVideoController::class, 'getTrainingVideos']);
+
+    //Get monthly targets
+    Route::get('/monthly-targets', [MonthlyTargetController::class, 'getMonthlyTarget']);
+    
+    Route::get('/assigned-targets', [MonthlyTargetController::class, 'getAssignedTargets']);
 
     //Notifications
     Route::get('/notifications', [NotificationController::class, 'getUserNotifications']);
