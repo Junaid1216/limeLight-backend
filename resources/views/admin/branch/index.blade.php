@@ -20,6 +20,7 @@
                                     <thead>
                                         <tr>
                                             <th>Sr.</th>
+                                            <th>Branch ID</th>
                                             <th>Name</th>
                                             <th>City</th>
                                             <th>Address</th>
@@ -31,6 +32,7 @@
                                         @foreach ($branches as $branch)
                                             <tr>
                                                 <td>{{ $loop->iteration }}</td>
+                                                <td>{{ $branch->branch_id ?? '-' }}</td>
                                                 <td>{{ $branch->name ?? '-' }}</td>
                                                 <td>{{ $branch->city ?? '-' }}</td>
                                                 <td>{{ $branch->address ?? '-' }}</td>

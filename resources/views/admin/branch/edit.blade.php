@@ -18,6 +18,18 @@
                                 <h4 class="text-center my-4">Edit Branch</h4>
                                 <div class="row mx-0 px-4">
 
+                                    <div class="col-sm-6 pl-sm-0 pr-sm-3">
+                                        <div class="form-group">
+                                            <label for="branch_id">Branch Id <span style="color: red;">*</span></label>
+                                            <input type="text" class="form-control @error('branch_id') is-invalid @enderror"
+                                                id="branch_id" name="branch_id" value="{{ old('branch_id', $branch->branch_id) }}"
+                                                placeholder="Enter Branch Id" required>
+                                            @error('branch_id')
+                                                <div class="invalid-feedback">{{ $message }}</div>
+                                            @enderror
+                                        </div>
+                                    </div>
+
                                     <!-- Name Field -->
                                     <div class="col-sm-6 pl-sm-0 pr-sm-3">
                                         <div class="form-group">
