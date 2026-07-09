@@ -2,13 +2,14 @@
 
 use App\Http\Controllers\Admin\SeoController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EmailOtpController;
 use App\Http\Controllers\Api\FeedBackController;
 use App\Http\Controllers\Api\LineItemController;
+use App\Http\Controllers\Api\MonthlyTargetController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\SurveyController;
 use App\Http\Controllers\Api\TrainingVideoController;
-use App\Http\Controllers\Api\MonthlyTargetController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SideMenueController;
@@ -75,6 +76,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/monthly-targets', [MonthlyTargetController::class, 'getMonthlyTarget']);
     
     Route::get('/assigned-targets', [MonthlyTargetController::class, 'getAssignedTargets']);
+
+    //target vs achievement & commission
+    Route::get('/dashboard', [DashboardController::class, 'dashboard']);
+
+    //category breakdown
+    Route::get('/category-breakdown',[DashboardController::class, 'categoryBreakdown']);
+
+    //slip bound incentive
+    Route::get('/slip-bound-incentive',[DashboardController::class,'slipBoundIncentive']);
 
     //Notifications
     Route::get('/notifications', [NotificationController::class, 'getUserNotifications']);
