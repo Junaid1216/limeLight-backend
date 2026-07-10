@@ -14,4 +14,14 @@ class Branch extends Model
     {
         return $this->belongsTo(Region::class);
     }
+
+    public function transactionSummaries()
+    {
+        return $this->hasMany(TransactionSummary::class);
+    }
+
+    public function footfallDailySummaries()
+    {
+        return $this->hasMany(FootfallDailySummary::class);
+    }
 }
