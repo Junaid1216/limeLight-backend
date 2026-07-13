@@ -4,7 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AssignedTarget;
+use App\Models\FootfallDailySummary;
+use App\Models\Sale;
+use App\Models\SaleItem;
 use App\Models\Slab;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -30,57 +34,7 @@ class DashboardController extends Controller
             ], 404);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Third Party API
-        |--------------------------------------------------------------------------
-        */
-
-        $fromDate = '2026-07-09 08:00:00';
-        $toDate   = '2026-07-15 23:59:59';
-
-        $url = "http://202.141.241.251:96/api/Sales/GetSalesByDateV2?" . http_build_query([
-            'AppId'        => 10,
-            'AppKey'       => 'jgiDwu3HwlKgbS9qorWmsVzhJ4oP0s5j',
-            'SaleFromDate' => $fromDate,
-            'SaleToDate'   => $toDate,
-        ]);
-
-        $curl = curl_init();
-
-        curl_setopt_array($curl, [
-            CURLOPT_URL            => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_ENCODING       => '',
-            CURLOPT_MAXREDIRS      => 10,
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
-            CURLOPT_CUSTOMREQUEST  => 'GET',
-        ]);
-
-        $response = curl_exec($curl);
-
-        if (curl_errno($curl)) {
-            return response()->json([
-                'status' => 500,
-                'message' => curl_error($curl),
-            ], 500);
-        }
-
-        $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-
-        curl_close($curl);
-
-        $response = json_decode($response, true);
-
-        if ($httpCode != 200) {
-            return response()->json([
-                'status' => $httpCode,
-                'message' => 'Unable to fetch sales data',
-                'response' => $response,
-            ], $httpCode);
-        }
+        
 
         /*
         |--------------------------------------------------------------------------
@@ -108,110 +62,74 @@ class DashboardController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $sold = [
-            'garments'=>0,
-            'unstitched'=>0,
-            'accessories'=>0
-        ];
+                $sold = [
+                'garments' => 0,
+                'unstitched' => 0,
+                'accessories' => 0
+            ];
 
-        $totalSale = 0;
+            $totalSale = 0;
 
-        if(isset($response['SalesList'])){
+            $saleItems = SaleItem::where('salesperson_code', $user->employee_id)->get();
 
-            foreach($response['SalesList'] as $invoice){
+            foreach ($saleItems as $item) {
 
-                foreach($invoice['data'] as $item){
+                $qty = max(0, $item->quantity);
 
-                    /*
-                     Ignore returned products
-                    */
+                $totalSale += $qty;
 
-                    $qty = max(0,$item['Quantity']);
+                $category = strtolower(trim($item->category));
 
-                    /*
-                     Only authenticated staff sales
-                    */
+                // Garments
+                if (in_array($category, [
+                    'signature',
+                    'flowy',
+                    'trouser',
+                    'regular prints',
+                    'fusion co-ords',
+                    'festive',
+                    'composed rotary',
+                    'premium',
+                    'casual',
+                    'glam',
+                    'dailywear',
+                    'regular running',
+                    'regular panel',
+                    'modish',
+                    'trendy',
+                    'premium wear',
+                    'tops'
+                ])) {
 
-                    if($item['SalesPersonCode'] != $user->employee_id){
-                        continue;
-                    }
-
-                    $totalSale += $qty;
-
-                    $category = strtolower($item['Category']);
-
-                    /*
-                    |--------------------------------------------------------------------------
-                    | Garments Mapping
-                    |--------------------------------------------------------------------------
-                    */
-
-                    if(
-                        in_array($category,[
-                           'Signature',
-                            'Flowy',
-                            'Trouser',
-                            'Regular Prints',
-                            'Fusion Co-Ords',
-                            'Festive',
-                            'Composed Rotary',
-                            'Premium',
-                            'Casual',
-                            'Glam',
-                            'Dailywear',
-                            'Regular Running',
-                            'Regular Panel',
-                            'Modish',
-                            'Trendy',
-                            'Premium Wear',
-                            'Tops'
-                        ])
-                    ){
-                        $sold['garments'] += $qty;
-                    }
-
-                    /*
-                    |--------------------------------------------------------------------------
-                    | Unstitched Mapping
-                    |--------------------------------------------------------------------------
-                    */
-
-                    elseif(
-                        in_array($category,[
-                            'Dupatta - Dyed',
-                            'Unstitched Trousers'
-                        ])
-                    ){
-                        $sold['unstitched'] += $qty;
-                    }
-
-                    /*
-                    |--------------------------------------------------------------------------
-                    | Accessories Mapping
-                    |--------------------------------------------------------------------------
-                    */
-
-                    elseif(
-                        in_array($category,[
-                            'Hand Bag',
-                            'Scarves - Printed',
-                            'Sunglasses',
-                            'Jewellery',
-                            'Clutches',
-                            'Perfumes',
-                            'Body Mist',
-                            'Non-Tradable'
-                        ])
-                    ){
-                        $sold['accessories'] += $qty;
-                    }
-
+                    $sold['garments'] += $qty;
                 }
 
+                // Unstitched
+                elseif (in_array($category, [
+                    'dupatta - dyed',
+                    'unstitched trousers'
+                ])) {
+
+                    $sold['unstitched'] += $qty;
+                }
+
+                // Accessories
+                elseif (in_array($category, [
+                    'hand bag',
+                    'scarves - printed',
+                    'sunglasses',
+                    'jewellery',
+                    'clutches',
+                    'perfumes',
+                    'body mist',
+                    'non-tradable'
+                ])) {
+
+                    $sold['accessories'] += $qty;
+                }
             }
 
-        }
-
+            
         /*
         |--------------------------------------------------------------------------
         | Target Vs Achievement
@@ -333,109 +251,72 @@ class DashboardController extends Controller
 
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Third Party API
-        |--------------------------------------------------------------------------
-        */
-
-        $url = "http://202.141.241.251:96/api/Sales/GetSalesByDateV2?"
-            . "AppId=10"
-            . "&AppKey=jgiDwu3HwlKgbS9qorWmsVzhJ4oP0s5j"
-            . "&SaleFromDate=2026-07-08 08:00:00"
-            . "&SaleToDate=2026-07-15 23:59:59";
-
-        $curl = curl_init();
-
-        curl_setopt_array($curl, [
-            CURLOPT_URL => str_replace(' ', '%20', $url),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 30,
-        ]);
-
-        $response = curl_exec($curl);
-
-        curl_close($curl);
-
-        $response = json_decode($response, true);
-
+        
         /*
         |--------------------------------------------------------------------------
         | Achieved Quantities
         |--------------------------------------------------------------------------
         */
 
-        $achieved = [
-            'garments' => 0,
-            'unstitched' => 0,
-            'accessories' => 0,
-        ];
+            $achieved = [
+                'garments' => 0,
+                'unstitched' => 0,
+                'accessories' => 0,
+            ];
 
-        if (isset($response['SalesList'])) {
+            $saleItems = SaleItem::where('salesperson_code', $user->employee_id)->get();
 
-            foreach ($response['SalesList'] as $sale) {
+            foreach ($saleItems as $item) {
 
-                foreach ($sale['data'] as $item) {
+                $qty = max(0, $item->quantity);
 
-                    if ($item['SalesPersonCode'] != $user->employee_id) {
-                        continue;
-                    }
+                $category = strtolower(trim($item->category));
 
-                    $qty = max(0, $item['Quantity']);
+                if (in_array($category, [
+                    'signature',
+                    'flowy',
+                    'trouser',
+                    'tops',
+                    'casual',
+                    'premium',
+                    'festive',
+                    'glam',
+                    'dailywear',
+                    'modish',
+                    'trendy',
+                    'regular prints',
+                    'regular running',
+                    'regular panel',
+                    'premium wear',
+                    'fusion co-ords',
+                    'composed rotary'
+                ])) {
 
-                    $category = strtolower(trim($item['Category']));
+                    $achieved['garments'] += $qty;
+                }
 
-                    // Garments
-                    if (in_array($category, [
-                        'signature',
-                        'flowy',
-                        'trouser',
-                        'tops',
-                        'casual',
-                        'premium',
-                        'festive',
-                        'glam',
-                        'dailywear',
-                        'modish',
-                        'trendy',
-                        'regular prints',
-                        'regular running',
-                        'regular panel',
-                        'premium wear',
-                        'fusion co-ords',
-                        'composed rotary'
-                    ])) {
+                elseif (in_array($category, [
+                    'dupatta - dyed',
+                    'unstitched trousers'
+                ])) {
 
-                        $achieved['garments'] += $qty;
-                    }
+                    $achieved['unstitched'] += $qty;
+                }
 
-                    // Unstitched
-                    elseif (in_array($category, [
-                        'unstitched',
-                        'dupatta - dyed',
-                        'unstitched trousers'
-                    ])) {
+                elseif (in_array($category, [
+                    'hand bag',
+                    'scarves - printed',
+                    'sunglasses',
+                    'jewellery',
+                    'clutches',
+                    'perfumes',
+                    'body mist',
+                    'non-tradable'
+                ])) {
 
-                        $achieved['unstitched'] += $qty;
-                    }
-
-                    // Accessories
-                    elseif (in_array($category, [
-                        'hand bag',
-                        'scarves - printed',
-                        'sunglasses',
-                        'jewellery',
-                        'clutches',
-                        'perfumes',
-                        'body mist',
-                        'non-tradable'
-                    ])) {
-
-                        $achieved['accessories'] += $qty;
-                    }
+                    $achieved['accessories'] += $qty;
                 }
             }
-        }
 
         /*
         |--------------------------------------------------------------------------
@@ -479,96 +360,165 @@ class DashboardController extends Controller
         ],401);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Third Party API
-    |--------------------------------------------------------------------------
-    */
-
-    $url = "http://202.141.241.251:96/api/Sales/GetSalesByDateV2?"
-            . "AppId=10"
-            . "&AppKey=jgiDwu3HwlKgbS9qorWmsVzhJ4oP0s5j"
-            . "&SaleFromDate=2026-07-08 08:00:00"
-            . "&SaleToDate=2026-07-15 23:59:59";
-
-        $curl = curl_init();
-
-        curl_setopt_array($curl, [
-            CURLOPT_URL => str_replace(' ', '%20', $url),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 30,
-        ]);
-
-        $response = curl_exec($curl);
-
-        curl_close($curl);
-
-        $response = json_decode($response, true);
     
+        $records = [];
 
-    $records = [];
+        $sales = Sale::whereHas('items', function ($q) use ($user) {
+            $q->where('salesperson_code', $user->employee_id);
+        })->with(['items' => function ($q) use ($user) {
+            $q->where('salesperson_code', $user->employee_id);
+        }])->get();
 
-    if(isset($response['SalesList']))
-    {
-        foreach($response['SalesList'] as $sale)
-        {
-            /*
-            ---------------------------------------------------------
-            Check whether invoice belongs to logged in Sales Staff
-            ---------------------------------------------------------
-            */
+        foreach ($sales as $sale) {
 
-            $belongsToStaff = false;
-
-            foreach($sale['data'] as $item)
-            {
-                if($item['SalesPersonCode'] == $user->employee_id)
-                {
-                    $belongsToStaff = true;
-                    break;
-                }
-            }
-
-            if(!$belongsToStaff){
-                continue;
-            }
-
-            /*
-            ---------------------------------------------------------
-            Find Slab
-            ---------------------------------------------------------
-            */
-
-            $slab = Slab::where('from_amount','<=',$sale['NetTotal'])
-                        ->where('to_amount','>=',$sale['NetTotal'])
-                        ->first();
-
+            $slab = Slab::where('from_amount', '<=', $sale->net_total)
+                ->where('to_amount', '>=', $sale->net_total)
+                ->first();
+            
             $records[] = [
 
-                'date' => date(
-                    'd M Y',
-                    strtotime($sale['Date'])
-                ),
+                'date' => Carbon::parse($sale->date)->format('d M Y'),
 
                 'slab' => $slab->slab_name ?? '-',
 
-                'invoice_no' => $sale['InvoiceNo'],
+                'invoice_id' => $sale->invoice_id,
 
                 'sales_id' => $user->employee_id,
 
-                'net_sale' => $sale['NetTotal'],
+                'net_sale' => $sale->net_total,
 
                 'incentive' => $slab->incentive_amount ?? 0
 
             ];
         }
-    }
 
     return response()->json([
         'status'=>200,
         'message'=>'Slip bound incentives',
         'data'=>$records
     ]);
+}
+
+public function conversionRate(Request $request)
+{
+    $user = Auth::user();
+    
+    $branch = $user->branch;
+
+    if (!$branch) {
+        return response()->json([
+            'status' => 404,
+            'message' => 'Branch not found'
+        ],404);
+    }
+
+    $from = $request->from
+        ? Carbon::parse($request->from)->startOfDay()
+        : Carbon::today()->subDays(6)->startOfDay();
+
+    $to = $request->to
+        ? Carbon::parse($request->to)->endOfDay()
+        : Carbon::today()->endOfDay();
+
+    /*
+    |--------------------------------------------------------------------------
+    | Footfall
+    |--------------------------------------------------------------------------
+    */
+
+    $footfalls = FootfallDailySummary::where('branch_id',$branch->id)
+        ->whereBetween('date',[
+            $from->toDateString(),
+            $to->toDateString()
+        ])
+        ->get()
+        ->keyBy('date');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Invoices
+    |--------------------------------------------------------------------------
+    */
+
+    $sales = Sale::where('shop_name',$branch->name)
+        ->whereBetween('date',[$from,$to])
+        ->get()
+        ->groupBy(function($sale){
+            return Carbon::parse($sale->date)->format('Y-m-d');
+        });
+
+    $chart = [];
+
+    $peak = [
+        'date' => null,
+        'conversion_rate' => 0,
+        'footfall' => 0,
+        'invoices' => 0
+    ];
+
+    $current = $from->copy();
+
+    while($current <= $to){
+
+        $date = $current->format('Y-m-d');
+
+        $footfall = optional($footfalls->get($date))->footfall ?? 0;
+
+        $invoiceCount = isset($sales[$date])
+            ? $sales[$date]->count()
+            : 0;
+
+        $conversion = $footfall > 0
+            ? round(($invoiceCount/$footfall)*100,2)
+            : 0;
+
+        if($conversion > $peak['conversion_rate']){
+
+            $peak = [
+                'date'=>$date,
+                'conversion_rate'=>$conversion,
+                'footfall'=>$footfall,
+                'invoices'=>$invoiceCount
+            ];
+
+        }
+
+        $chart[] = [
+
+            'date'=>$date,
+
+            'footfall'=>$footfall,
+
+            'invoices'=>$invoiceCount,
+
+            'conversion_rate'=>$conversion
+
+        ];
+
+        $current->addDay();
+
+    }
+
+    return response()->json([
+
+        'status'=>200,
+
+        'message'=>'Conversion rate fetched successfully',
+
+        'data'=>[
+
+            'from'=>$from->toDateString(),
+
+            'to'=>$to->toDateString(),
+
+            'peak'=>$peak,
+
+            'chart'=>$chart
+
+        ]
+
+    ]);
+
 }
 
 }

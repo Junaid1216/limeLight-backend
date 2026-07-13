@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\SeoController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BranchManagerDashboardController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EmailOtpController;
 use App\Http\Controllers\Api\FeedBackController;
@@ -86,6 +87,18 @@ Route::middleware('auth:sanctum')->group(function () {
     //slip bound incentive
     Route::get('/slip-bound-incentive',[DashboardController::class,'slipBoundIncentive']);
 
+    // conversion rate
+    Route::get('/conversion-rate', [DashboardController::class, 'conversionRate']);
+
+    //branch manager my performance
+    Route::get('/branch-manager-dashboard', [BranchManagerDashboardController::class, 'branchDashboard']);
+
+    //branch manager category performance
+    Route::get('/branch-manager-category-performance', [BranchManagerDashboardController::class, 'categoryPerformance']);
+
+    //branch manager my performance
+    Route::get('/branch-manager-commission', [BranchManagerDashboardController::class, 'commission']);
+
     //Notifications
     Route::get('/notifications', [NotificationController::class, 'getUserNotifications']);
 });
@@ -103,6 +116,7 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::post('/verify-otp', [EmailOtpController::class, 'verifyOtp']);
 Route::post('/register-user', [EmailOtpController::class, 'registerUser']);
 Route::post('/submit-contact-us', [ContactUsController::class, 'Submitcontact'])->name('contact.send');
+
 
   Route::post('/update-profile', [EmailOtpController::class, 'requestUpdateOtp']);
     Route::post('/update-profile-verify', [EmailOtpController::class, 'verifyAndUpdateContact']);

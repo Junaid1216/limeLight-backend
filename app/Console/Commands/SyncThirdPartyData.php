@@ -153,9 +153,9 @@ private function syncSales($branch,$start,$end)
 
         'AppKey'=>'jgiDwu3HwlKgbS9qorWmsVzhJ4oP0s5j',
 
-        'SaleFromDate'=>$start->format('Y-m-d 00:00:00'),
+        'SaleFromDate' => '2026-07-11 00:00:00',
 
-        'SaleToDate'=>$end->format('Y-m-d 23:59:59')
+        'SaleToDate' => '2026-07-12 23:59:59',
 
     ]);
 
