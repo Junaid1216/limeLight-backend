@@ -297,6 +297,8 @@ Route::post('/blogs/reorder', [BlogController::class, 'reorder'])->name('blog.re
         Route::delete('/notifications/delete-all', 'deleteAll')->name('notifications.deleteAll');
         Route::get('/get-users-by-type', 'getUsersByType');
 
+        Route::get('/admin-notification/{id}', 'read')->name('admin.notifications.read');
+
     });
 
     // ############ Seo Routes #################

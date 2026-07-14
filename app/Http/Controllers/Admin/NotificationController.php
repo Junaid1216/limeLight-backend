@@ -165,4 +165,22 @@ class NotificationController extends Controller
         return response()->json($users);
 
     }
+
+
+
+public function read($id)
+{
+    $notification = Notification::findOrFail($id);
+
+    $notification->update([
+        'is_read' => 1
+    ]);
+
+    // Redirect according to notification type
+    if($notification->type == 'monthly_target'){
+        return redirect()->route('admin.target.approvals');
+    }
+
+    return back();
+}
 }

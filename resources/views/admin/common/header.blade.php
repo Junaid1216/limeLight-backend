@@ -1,3 +1,13 @@
+@php
+$notifications = \App\Models\Notification::where('user_type', 'admin')
+    ->latest()
+    ->take(10)
+    ->get();
+
+$unreadCount = \App\Models\Notification::where('user_type', 'admin')
+    ->where('is_read', 0)
+    ->count();
+@endphp
 <div class="navbar-bg"></div>
 <nav class="navbar navbar-expand-lg main-navbar sticky">
     <div class="form-inline mr-auto">
@@ -72,6 +82,56 @@
                 </div>
             </div>
         </li> --}}
+         <li class="nav-item dropdown">
+    <a class="nav-link position-relative"
+       href="#"
+       data-bs-toggle="dropdown">
+
+        <i data-feather="bell"></i>
+
+        @if($unreadCount > 0)
+            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                {{ $unreadCount }}
+            </span>
+        @endif
+
+    </a>
+
+    <div class="dropdown-menu dropdown-menu-end p-0" style="width:350px">
+
+        <div class="p-3 border-bottom">
+            <strong>Notifications</strong>
+        </div>
+
+        @forelse($notifications as $notification)
+
+            <a href="{{ route('admin.notifications.read',$notification->id) }}"
+               class="dropdown-item">
+
+                <strong>{{ $notification->title }}</strong>
+
+                <br>
+
+                <small>{{ $notification->description }}</small>
+
+                <br>
+
+                <small class="text-muted">
+                    {{ $notification->created_at->diffForHumans() }}
+                </small>
+
+            </a>
+
+        @empty
+
+            <div class="p-3 text-center">
+                No Notifications
+            </div>
+
+        @endforelse
+
+    </div>
+</li>
         <li class="dropdown"><a href="#" data-toggle="dropdown"
                 class="nav-link dropdown-toggle nav-link-lg nav-link-user">
                 @php
@@ -112,5 +172,6 @@
                 </a>
             </div>
         </li>
+       
     </ul>
 </nav>

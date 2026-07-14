@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\Admin\SeoController;
+use App\Http\Controllers\Api\AsmComparisonController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BranchManagerComparisonController;
 use App\Http\Controllers\Api\BranchManagerDashboardController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EmailOtpController;
@@ -78,6 +80,8 @@ Route::middleware('auth:sanctum')->group(function () {
     
     Route::get('/assigned-targets', [MonthlyTargetController::class, 'getAssignedTargets']);
 
+    Route::post('/branch-manager/assign-targets',[MonthlyTargetController::class, 'assignTargets']);
+
     //target vs achievement & commission
     Route::get('/dashboard', [DashboardController::class, 'dashboard']);
 
@@ -99,11 +103,38 @@ Route::middleware('auth:sanctum')->group(function () {
     //branch manager my performance
     Route::get('/branch-manager-commission', [BranchManagerDashboardController::class, 'commission']);
 
+    //branch manager staff comparison
+    Route::get('/branch-manager-staff-comparison',[BranchManagerComparisonController::class,'staffComparison']);
+
+    //branch manager branch comparison
+    Route::get('/branch-manager-branch-comparison',[BranchManagerComparisonController::class,'branchComparison']);
+
+    //branch manager staff details
+    Route::get('/staff-details/{id}', [BranchManagerComparisonController::class, 'staffDetails']);
+
+    //asm conversion
+    Route::get('/asm-branch-conversion', [AsmComparisonController::class, 'branchConversion']);
+
+    //asm branch comparison
+    Route::get('/asm-branch-comparison', [AsmComparisonController::class, 'branchComparison']);
+
+    //asm region comparison
+    Route::get('/asm-region-comparison', [AsmComparisonController::class, 'regionComparison']);
+
+    //asm regions comparison
+    Route::get('/asm-regions-comparison', [AsmComparisonController::class, 'regionCategoryComparison']);
+
+    //asm staff comparison
+    Route::get('/asm-staff-comparison', [AsmComparisonController::class, 'staffComparison']);
+
+    //asm branch targets
+    Route::get('/asm-branch-targets', [AsmComparisonController::class, 'branchTargets']);
+
     //Notifications
     Route::get('/notifications', [NotificationController::class, 'getUserNotifications']);
 });
 
-
+Route::post('/admin/approve-targets/{branchManagerId}/{month}/{year}',[MonthlyTargetController::class, 'approveTargets']);
 
 Route::middleware('auth:sanctum')->group(function () {
 

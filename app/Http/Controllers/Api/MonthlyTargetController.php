@@ -3,7 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AssignedTarget;
+use App\Models\Notification;
 use App\Models\Target;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -73,4 +76,100 @@ class MonthlyTargetController extends Controller
         ]);
     }
 
+    public function assignTargets(Request $request)
+{
+    $user = Auth::user();
+
+    $branch = $user->branch;
+
+    if (!$branch) {
+        return response()->json([
+            'status' => 404,
+            'message' => 'Branch not found'
+        ],404);
+    }
+
+    $request->validate([
+        'month' => 'required',
+        'year' => 'required',
+        'targets' => 'required|array'
+    ]);
+
+    foreach ($request->targets as $staff) {
+
+        foreach ([
+            'garments',
+            'unstitched',
+            'accessories'
+        ] as $category) {
+
+            AssignedTarget::updateOrCreate(
+
+                [
+                    'user_id' => $staff['sale_staff_id'],
+                    'month' => $request->month,
+                    'year' => $request->year,
+                    'category' => $category
+                ],
+
+                [
+                    'branch_manager_id' => $user->id,
+                    'branch_id' => $branch->id,
+                    'target' => $staff[$category],
+                    'status' => 'pending'
+                ]
+
+            );
+
+        }
+
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Notify Admin
+    |--------------------------------------------------------------------------
+    */
+
+    Notification::create([
+    'user_type' => 'admin',
+    'title' => 'Monthly Targets Approval',
+    'description' => $user->name . ' has assigned monthly targets for approval.',
+    'is_read' => 0
+    ]);
+
+    return response()->json([
+
+        'status' => 200,
+
+        'message' => 'Targets submitted successfully and waiting for HOD approval.'
+
+    ]);
+}
+
+public function approveTargets($branchManagerId, $month, $year)
+{
+    // Approve pending request
+    AssignedTarget::where([
+        'branch_manager_id' => $branchManagerId,
+        'month' => $month,
+        'year' => $year
+    ])->update([
+        'status' => 'approved'
+    ]);
+
+    // Activate targets
+    Target::where([
+        'branch_manager_id' => $branchManagerId,
+        'month' => $month,
+        'year' => $year
+    ])->update([
+        'toggle' => 1
+    ]);
+
+    return response()->json([
+        'status' => 200,
+        'message' => 'Targets approved successfully.'
+    ]);
+}
 }
