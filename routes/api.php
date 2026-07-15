@@ -130,6 +130,9 @@ Route::middleware('auth:sanctum')->group(function () {
     //asm branch targets
     Route::get('/asm-branch-targets', [AsmComparisonController::class, 'branchTargets']);
 
+    // asm staff details
+    Route::get('/asm-staff-details/{staffId}', [AsmComparisonController::class, 'staffDetails']);
+
     //Notifications
     Route::get('/notifications', [NotificationController::class, 'getUserNotifications']);
 });

@@ -16,6 +16,7 @@ use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\RegionController;
 use App\Http\Controllers\Admin\ReportingController;
 use App\Http\Controllers\Admin\RolePermissionController;
+use App\Http\Controllers\Admin\SalesHistoryController;
 use App\Http\Controllers\Admin\SaleStaffController;
 use App\Http\Controllers\Admin\SecurityController;
 use App\Http\Controllers\Admin\SeoController;
@@ -236,6 +237,9 @@ Route::delete('/surveys/destroy/{id}', [SurveyController::class, 'delete'])->nam
 
 // ############ Reporting #################
 Route::get('/reporting', [ReportingController::class, 'index'])->name('reporting.index')->middleware('check.permission:Reportings,view');
+
+// ############ Sales History #################
+Route::get('/sales-history', [SalesHistoryController::class, 'index'])->name('sales.history.index')->middleware('check.permission:Sales History,view');
 
     // ############ Sub Admin #################
     Route::controller(SubAdminController::class)->group(function () {

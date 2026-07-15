@@ -201,6 +201,16 @@
                 </li>
             @endif
 
+            @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Sales History') && $sideMenuPermissions['Sales History']->contains('view')))
+                <li class="dropdown {{ request()->is('admin/sales-history') || request()->is('admin/sales-history/*') ? 'active' : ''}}">
+                    <a href="{{ url('admin/sales-history') }}" class="nav-link">
+                        <i data-feather="clock"></i>
+                        <span>Sales History</span>
+                    </a>
+                </li>
+            @endif
+
 
             {{--  Blogs --}}
 

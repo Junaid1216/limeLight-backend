@@ -96,6 +96,8 @@ class BranchManagerComparisonController extends Controller
 
         $response[] = [
 
+            'staff_id'=>$staff->id,
+
             'staff_name'=>$staff->name,
 
             'target'=>$target,

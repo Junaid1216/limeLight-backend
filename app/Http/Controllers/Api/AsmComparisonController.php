@@ -849,4 +849,192 @@ public function branchTargets()
 
     ]);
 }
+
+public function staffDetails($staffId)
+{
+    $asm = Auth::user();
+
+    $branchIds = Branch::where('region_id', $asm->region_id)
+        ->pluck('id');
+
+    $staff = SaleStaff::whereIn('branch_id', $branchIds)
+        ->where('id', $staffId)
+        ->first();
+
+    if (!$staff) {
+
+        return response()->json([
+            'status' => 404,
+            'message' => 'Staff not found'
+        ],404);
+
+    }
+
+    $month = Carbon::now()->format('F');
+    $year  = Carbon::now()->year;
+
+    $categories = [
+        'garments',
+        'unstitched',
+        'accessories'
+    ];
+
+    $categoryPerformance = [];
+
+    $totalTarget = 0;
+    $totalAchieved = 0;
+
+    foreach ($categories as $category) {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Assigned Target
+        |--------------------------------------------------------------------------
+        */
+
+        $target = AssignedTarget::where([
+                'user_id' => $staff->id,
+                // 'month' => $month,
+                // 'year' => $year,
+                'category' => $category,
+                // 'status' => 'approved'
+            ])->sum('target');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Achieved
+        |--------------------------------------------------------------------------
+        */
+
+        $achieved = 0;
+
+        $saleItems = SaleItem::whereHas('sale', function ($q) use ($staff) {
+
+            $q->where('shop_name', $staff->branch->name);
+
+        })->get();
+
+        foreach ($saleItems as $item) {
+
+            $itemCategory = strtolower(trim($item->category));
+
+            $qty = max(0,$item->quantity);
+
+            if (
+                $category == 'garments' &&
+                in_array($itemCategory,[
+                    'signature',
+                    'flowy',
+                    'trouser',
+                    'regular prints',
+                    'fusion co-ords',
+                    'festive',
+                    'composed rotary',
+                    'premium',
+                    'casual',
+                    'glam',
+                    'dailywear',
+                    'regular running',
+                    'regular panel',
+                    'modish',
+                    'trendy',
+                    'premium wear',
+                    'tops'
+                ])
+            ) {
+
+                $achieved += $qty;
+
+            }
+
+            elseif(
+                $category == 'unstitched' &&
+                in_array($itemCategory,[
+                    'dupatta - dyed',
+                    'unstitched trousers'
+                ])
+            ){
+
+                $achieved += $qty;
+
+            }
+
+            elseif(
+                $category == 'accessories' &&
+                in_array($itemCategory,[
+                    'hand bag',
+                    'scarves - printed',
+                    'sunglasses',
+                    'jewellery',
+                    'clutches',
+                    'perfumes',
+                    'body mist',
+                    'non-tradable'
+                ])
+            ){
+
+                $achieved += $qty;
+
+            }
+
+        }
+
+        $remaining = max($target - $achieved,0);
+
+        $percentage = $target > 0
+            ? round(($achieved/$target)*100)
+            : 0;
+
+        if($percentage > 100){
+            $percentage = 100;
+        }
+
+        $categoryPerformance[] = [
+
+            'category' => ucfirst($category),
+
+            'target' => $target,
+
+            'achieved' => $achieved,
+
+            'remaining' => $remaining,
+
+            'percentage' => $percentage
+
+        ];
+
+        $totalTarget += $target;
+        $totalAchieved += $achieved;
+
+    }
+
+    return response()->json([
+
+        'status' => 200,
+
+        'message' => 'Staff Details',
+
+        'data' => [
+
+            'sale_staff_id' => $staff->id,
+
+            'name' => $staff->name,
+
+            'designation' => optional($staff->designation)->name,
+
+            'branch' => $staff->branch->name,
+
+            'target' => $totalTarget,
+
+            'achieved' => $totalAchieved,
+
+            'remaining' => max($totalTarget-$totalAchieved,0),
+
+            'categories' => $categoryPerformance
+
+        ]
+
+    ]);
+
+}
 }
