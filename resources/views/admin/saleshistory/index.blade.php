@@ -81,6 +81,19 @@
                                                 &nbsp;|&nbsp;
                                                 <strong>Total Sales:</strong>
                                                 {{ number_format($summary['total_sales'], 2) }}
+                                                @if ($role === 'branch_manager')
+                                                    &nbsp;|&nbsp;
+                                                    <strong>Commission:</strong>
+                                                    {{ number_format($summary['commission'] ?? 0, 2) }}
+                                                @endif
+                                                @if ($role === 'sale_staff')
+                                                    &nbsp;|&nbsp;
+                                                    <strong>Slip Bound Incentive:</strong>
+                                                    {{ number_format($summary['slip_bound_incentive'] ?? 0, 2) }}
+                                                    &nbsp;|&nbsp;
+                                                    <strong>Commission:</strong>
+                                                    {{ number_format($summary['commission'] ?? 0, 2) }}
+                                                @endif
                                             </div>
                                         </div>
                                     </div>
@@ -94,9 +107,15 @@
                                                     <th>Branch</th>
                                                     <th>Date</th>
                                                     <th>Salesperson</th>
-                                                    <th>Salesperson Code</th>
                                                     <th>Quantity</th>
                                                     <th>Amount</th>
+                                                    @if ($role === 'branch_manager')
+                                                        <th>Commission</th>
+                                                    @endif
+                                                    @if ($role === 'sale_staff')
+                                                        <th>Slip Bound Incentive</th>
+                                                        <th>Commission</th>
+                                                    @endif
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -107,13 +126,19 @@
                                                         <td>{{ $row['branch'] ?? '-' }}</td>
                                                         <td>{{ $row['date'] ?? '-' }}</td>
                                                         <td>{{ $row['salesperson'] }}</td>
-                                                        <td>{{ $row['salesperson_code'] }}</td>
                                                         <td>{{ $row['quantity'] }}</td>
                                                         <td>{{ number_format($row['amount'], 2) }}</td>
+                                                        @if ($role === 'branch_manager')
+                                                            <td>{{ number_format($row['commission'] ?? 0, 2) }}</td>
+                                                        @endif
+                                                        @if ($role === 'sale_staff')
+                                                            <td>{{ number_format($row['slip_bound_incentive'] ?? 0, 2) }}</td>
+                                                            <td>{{ number_format($row['commission'] ?? 0, 2) }}</td>
+                                                        @endif
                                                     </tr>
                                                 @empty
                                                     <tr>
-                                                        <td colspan="8" class="text-center">No sales found for the selected filters.</td>
+                                                        <td colspan="{{ $role === 'sale_staff' ? 9 : ($role === 'branch_manager' ? 8 : 7) }}" class="text-center">No sales found for the selected filters.</td>
                                                     </tr>
                                                 @endforelse
                                             </tbody>

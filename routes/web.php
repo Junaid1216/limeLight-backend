@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\FaqController;
 use App\Http\Controllers\Admin\HierarchyController;
 use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\RegionController;
+use App\Http\Controllers\Admin\PeerBranchConversionController;
 use App\Http\Controllers\Admin\ReportingController;
 use App\Http\Controllers\Admin\RolePermissionController;
 use App\Http\Controllers\Admin\SalesHistoryController;
@@ -240,6 +241,9 @@ Route::get('/reporting', [ReportingController::class, 'index'])->name('reporting
 
 // ############ Sales History #################
 Route::get('/sales-history', [SalesHistoryController::class, 'index'])->name('sales.history.index')->middleware('check.permission:Sales History,view');
+
+// ############ Peer Branch Conversion #################
+Route::get('/peer-branch-conversion', [PeerBranchConversionController::class, 'index'])->name('peer.branch.conversion.index')->middleware('check.permission:Peer Branch Conversion,view');
 
     // ############ Sub Admin #################
     Route::controller(SubAdminController::class)->group(function () {

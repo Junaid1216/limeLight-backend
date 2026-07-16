@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\AreaSaleManager;
 use App\Models\Branch;
 use App\Models\BranchManager;
+use App\Models\Commission;
 use App\Models\Sale;
 use App\Models\SaleStaff;
+use App\Models\Slab;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -42,6 +44,8 @@ class SalesHistoryController extends Controller
             'invoices' => 0,
             'total_sales' => 0,
             'quantity' => 0,
+            'commission' => 0,
+            'slip_bound_incentive' => 0,
         ];
         $selected = null;
 
@@ -54,6 +58,7 @@ class SalesHistoryController extends Controller
             } elseif ($role === 'branch_manager') {
                 $selected = $branchManagers->firstWhere('id', (int) $id);
                 if ($selected) {
+                    $selected->loadMissing('branch');
                     [$rows, $summary] = $this->branchManagerSales($selected, $from, $to);
                 }
             } elseif ($role === 'sale_staff') {
@@ -107,7 +112,7 @@ class SalesHistoryController extends Controller
         $branchNames = $branches->pluck('name')->filter()->values();
 
         if ($branchNames->isEmpty()) {
-            return [[], ['invoices' => 0, 'total_sales' => 0, 'quantity' => 0]];
+            return [[], $this->emptySummary()];
         }
 
         $sales = Sale::with('items')
@@ -117,7 +122,7 @@ class SalesHistoryController extends Controller
             ->get();
 
         $rows = [];
-        $summary = ['invoices' => 0, 'total_sales' => 0, 'quantity' => 0];
+        $summary = $this->emptySummary();
 
         foreach ($sales as $sale) {
             $qty = $sale->items->sum(function ($item) {
@@ -130,8 +135,7 @@ class SalesHistoryController extends Controller
                 'invoice_id' => $sale->invoice_id,
                 'branch' => $sale->shop_name,
                 'date' => $sale->date,
-                'salesperson' => $staffNames ?: '-',
-                'salesperson_code' => $staffCodes ?: '-',
+                'salesperson' => $this->formatSalesperson($staffNames, $staffCodes),
                 'quantity' => $qty,
                 'amount' => (float) $sale->net_total,
             ];
@@ -149,7 +153,12 @@ class SalesHistoryController extends Controller
         $branch = $manager->branch;
 
         if (!$branch || !$branch->name) {
-            return [[], ['invoices' => 0, 'total_sales' => 0, 'quantity' => 0]];
+            return [[], $this->emptySummary()];
+        }
+
+        $commissionRate = Commission::where('role', 'branch_manager')->value('commission');
+        if ($commissionRate === null) {
+            $commissionRate = 5;
         }
 
         $sales = Sale::with('items')
@@ -159,7 +168,7 @@ class SalesHistoryController extends Controller
             ->get();
 
         $rows = [];
-        $summary = ['invoices' => 0, 'total_sales' => 0, 'quantity' => 0];
+        $summary = $this->emptySummary();
 
         foreach ($sales as $sale) {
             $qty = $sale->items->sum(function ($item) {
@@ -167,21 +176,26 @@ class SalesHistoryController extends Controller
             });
             $staffNames = $sale->items->pluck('salesperson_name')->filter()->unique()->implode(', ');
             $staffCodes = $sale->items->pluck('salesperson_code')->filter()->unique()->implode(', ');
+            $amount = (float) $sale->net_total;
+            $commission = round(($amount * $commissionRate) / 100, 2);
 
             $rows[] = [
                 'invoice_id' => $sale->invoice_id,
                 'branch' => $sale->shop_name,
                 'date' => $sale->date,
-                'salesperson' => $staffNames ?: '-',
-                'salesperson_code' => $staffCodes ?: '-',
+                'salesperson' => $this->formatSalesperson($staffNames, $staffCodes),
                 'quantity' => $qty,
-                'amount' => (float) $sale->net_total,
+                'amount' => $amount,
+                'commission' => $commission,
             ];
 
             $summary['invoices']++;
-            $summary['total_sales'] += (float) $sale->net_total;
+            $summary['total_sales'] += $amount;
             $summary['quantity'] += $qty;
+            $summary['commission'] += $commission;
         }
+
+        $summary['commission'] = round($summary['commission'], 2);
 
         return [$rows, $summary];
     }
@@ -189,8 +203,10 @@ class SalesHistoryController extends Controller
     private function saleStaffSales(SaleStaff $staff, Carbon $from, Carbon $to): array
     {
         if (!$staff->employee_id) {
-            return [[], ['invoices' => 0, 'total_sales' => 0, 'quantity' => 0]];
+            return [[], $this->emptySummary()];
         }
+
+        $commissionRate = Commission::where('role', 'sales_staff')->value('commission') ?? 0;
 
         $sales = Sale::with(['items' => function ($q) use ($staff) {
             $q->where('salesperson_code', $staff->employee_id);
@@ -203,7 +219,7 @@ class SalesHistoryController extends Controller
             ->get();
 
         $rows = [];
-        $summary = ['invoices' => 0, 'total_sales' => 0, 'quantity' => 0];
+        $summary = $this->emptySummary();
 
         foreach ($sales as $sale) {
             $qty = $sale->items->sum(function ($item) {
@@ -213,21 +229,65 @@ class SalesHistoryController extends Controller
                 return (float) $item->price * max(0, (int) $item->quantity);
             });
 
+            $commission = round(($amount * $commissionRate) / 100, 2);
+
+            $slab = Slab::where('from_amount', '<=', $sale->net_total)
+                ->where('to_amount', '>=', $sale->net_total)
+                ->first();
+            $slipBoundIncentive = (float) ($slab->incentive_amount ?? 0);
+
             $rows[] = [
                 'invoice_id' => $sale->invoice_id,
                 'branch' => $sale->shop_name,
                 'date' => $sale->date,
-                'salesperson' => $staff->name,
-                'salesperson_code' => $staff->employee_id,
+                'salesperson' => $this->formatSalesperson($staff->name, $staff->employee_id),
                 'quantity' => $qty,
                 'amount' => $amount,
+                'commission' => $commission,
+                'slip_bound_incentive' => $slipBoundIncentive,
             ];
 
             $summary['invoices']++;
             $summary['total_sales'] += $amount;
             $summary['quantity'] += $qty;
+            $summary['commission'] += $commission;
+            $summary['slip_bound_incentive'] += $slipBoundIncentive;
         }
 
+        $summary['commission'] = round($summary['commission'], 2);
+        $summary['slip_bound_incentive'] = round($summary['slip_bound_incentive'], 2);
+
         return [$rows, $summary];
+    }
+
+    private function emptySummary(): array
+    {
+        return [
+            'invoices' => 0,
+            'total_sales' => 0,
+            'quantity' => 0,
+            'commission' => 0,
+            'slip_bound_incentive' => 0,
+        ];
+    }
+
+    private function formatSalesperson(?string $name, ?string $code): string
+    {
+        $name = trim((string) $name);
+        $code = trim((string) $code);
+
+        if ($name !== '' && $code !== '') {
+            return $name . ' (' . $code . ')';
+        }
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        if ($code !== '') {
+            return $code;
+        }
+
+        return '-';
     }
 }

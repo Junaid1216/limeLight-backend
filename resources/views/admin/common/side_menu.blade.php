@@ -211,6 +211,16 @@
                 </li>
             @endif
 
+            @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Peer Branch Conversion') && $sideMenuPermissions['Peer Branch Conversion']->contains('view')))
+                <li class="dropdown {{ request()->is('admin/peer-branch-conversion') || request()->is('admin/peer-branch-conversion/*') ? 'active' : ''}}">
+                    <a href="{{ url('admin/peer-branch-conversion') }}" class="nav-link">
+                        <i data-feather="git-merge"></i>
+                        <span>Peer Branch Conversion</span>
+                    </a>
+                </li>
+            @endif
+
 
             {{--  Blogs --}}
 

@@ -103,23 +103,50 @@ class MonthlyTargetController extends Controller
             'accessories'
         ] as $category) {
 
-            AssignedTarget::updateOrCreate(
+            $assignedTarget = AssignedTarget::where([
+            'user_id' => $staff['sale_staff_id'],
+            'month' => $request->month,
+            'year' => $request->year,
+            'category' => $category
+        ])->first();
 
-                [
-                    'user_id' => $staff['sale_staff_id'],
-                    'month' => $request->month,
-                    'year' => $request->year,
-                    'category' => $category
-                ],
+        if ($assignedTarget) {
 
-                [
-                    'branch_manager_id' => $user->id,
-                    'branch_id' => $branch->id,
-                    'target' => $staff[$category],
-                    'status' => 'pending'
-                ]
+            // If already approved, don't allow update
+            if ($assignedTarget->status == 'approved') {
 
-            );
+                return response()->json([
+                    'status' => 400,
+                    'message' => 'Approved by HOD - '.$assignedTarget->month.' '.$assignedTarget->year.''
+                ]);
+
+            }
+
+            // Pending -> update target
+            $assignedTarget->update([
+                'target' => $staff[$category],
+                'branch_manager_id' => $user->id,
+                'branch_id' => $branch->id,
+                'status' => 'pending'
+            ]);
+
+        } else {
+
+            // First time assignment
+            AssignedTarget::create([
+
+                'user_id' => $staff['sale_staff_id'],
+                'category' => $category,
+                'target' => $staff[$category],
+                'month' => $request->month,
+                'year' => $request->year,
+                'branch_manager_id' => $user->id,
+                'branch_id' => $branch->id,
+                'status' => 'pending'
+
+            ]);
+
+        }
 
         }
 
@@ -147,29 +174,4 @@ class MonthlyTargetController extends Controller
     ]);
 }
 
-public function approveTargets($branchManagerId, $month, $year)
-{
-    // Approve pending request
-    AssignedTarget::where([
-        'branch_manager_id' => $branchManagerId,
-        'month' => $month,
-        'year' => $year
-    ])->update([
-        'status' => 'approved'
-    ]);
-
-    // Activate targets
-    Target::where([
-        'branch_manager_id' => $branchManagerId,
-        'month' => $month,
-        'year' => $year
-    ])->update([
-        'toggle' => 1
-    ]);
-
-    return response()->json([
-        'status' => 200,
-        'message' => 'Targets approved successfully.'
-    ]);
-}
 }

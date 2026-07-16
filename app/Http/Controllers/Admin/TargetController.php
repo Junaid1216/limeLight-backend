@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AssignedTarget;
 use App\Models\Branch;
 use App\Models\BranchManager;
 use App\Models\Designation;
@@ -132,6 +133,17 @@ public function toggleStatus(Request $request)
     $target->toggle = $request->status;
 
     $saved = $target->save();
+
+    if ($saved && $request->status == 1) {
+
+        AssignedTarget::where('branch_id', $target->branch_id)
+            ->where('month', $target->month)
+            ->where('year', $target->year)
+            ->where('category', $target->category) // approve only this category
+            ->update([
+                'status' => 'approved'
+            ]);
+    }
 
     return response()->json([
         'success' => $saved,

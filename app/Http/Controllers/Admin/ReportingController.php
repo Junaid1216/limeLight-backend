@@ -41,6 +41,7 @@ class ReportingController extends Controller
         $period = $request->get('period', 'weekly');
         $role = $request->get('role', '');
         $id = $request->get('id');
+        $branchCategoryFilter = $request->get('branch_category_filter', 'overall');
 
         [$from, $to] = $this->resolvePeriod($period);
 
@@ -73,7 +74,7 @@ class ReportingController extends Controller
                 $selected = $branchManagers->firstWhere('id', (int) $id);
                 if ($selected) {
                     $selected->load('branch');
-                    $comparisons = $this->branchManagerComparisons($selected, $from, $to);
+                    $comparisons = $this->branchManagerComparisons($selected, $from, $to, $branchCategoryFilter);
                 }
             } elseif ($role === 'sale_staff') {
                 $selected = $saleStaff->firstWhere('id', (int) $id);
@@ -88,6 +89,7 @@ class ReportingController extends Controller
             'period',
             'role',
             'id',
+            'branchCategoryFilter',
             'from',
             'to',
             'asmOptions',
@@ -127,7 +129,7 @@ class ReportingController extends Controller
         ];
     }
 
-    private function branchManagerComparisons(BranchManager $manager, Carbon $from, Carbon $to): array
+    private function branchManagerComparisons(BranchManager $manager, Carbon $from, Carbon $to, string $branchCategoryFilter): array
     {
         $branch = $manager->branch;
 
@@ -137,6 +139,8 @@ class ReportingController extends Controller
                 'summary' => null,
                 'staff_comparison' => [],
                 'branch_category' => [],
+                'branch_category_filter' => $branchCategoryFilter,
+                'branch_category_filters' => $this->branchCategoryFilters(),
                 'branch_conversion' => [],
             ];
         }
@@ -170,7 +174,9 @@ class ReportingController extends Controller
                 'commission' => round($achieved * 0.05, 2),
             ],
             'staff_comparison' => $this->staffComparisonForBranch($branch),
-            'branch_category' => $this->peerBranchCategoryRows($peerBranches, $branch->id),
+            'branch_category' => $this->peerBranchCategoryRows($peerBranches, $branch->id, $branchCategoryFilter),
+            'branch_category_filter' => $branchCategoryFilter,
+            'branch_category_filters' => $this->branchCategoryFilters(),
             'branch_conversion' => $this->branchConversionRows($peerBranches, $from, $to),
         ];
     }
@@ -338,47 +344,65 @@ class ReportingController extends Controller
         return $response;
     }
 
-    private function peerBranchCategoryRows($branches, int $yourBranchId): array
+    private function peerBranchCategoryRows($branches, int $yourBranchId, string $selectedCategory = 'overall'): array
     {
         $month = Carbon::now()->format('F');
         $year = Carbon::now()->year;
-        $response = [];
+        $rows = [];
 
-        foreach ($this->categories as $category) {
-            $rows = [];
-
-            foreach ($branches as $branchItem) {
+        foreach ($branches as $branchItem) {
+            if ($selectedCategory === 'overall') {
                 $target = Target::where('branch_id', $branchItem->id)
-                    ->where('category', $category)
+                    ->whereIn('category', $this->categories)
+                    ->where('month', $month)
+                    ->where('year', $year)
+                    ->sum('monthly_target');
+
+                $achieved = 0;
+                foreach ($this->categories as $category) {
+                    $achieved += $this->achievedQtyForBranch($branchItem->name, $category);
+                }
+            } else {
+                $target = Target::where('branch_id', $branchItem->id)
+                    ->where('category', $selectedCategory)
                     ->where('month', $month)
                     ->where('year', $year)
                     ->value('monthly_target') ?? 0;
 
-                $achieved = $this->achievedQtyForBranch($branchItem->name, $category);
-                $achievement = $target > 0 ? min(100, round(($achieved / $target) * 100)) : 0;
-
-                $rows[] = [
-                    'branch_id' => $branchItem->id,
-                    'branch' => $branchItem->name,
-                    'target' => $target,
-                    'achieved' => $achieved,
-                    'achievement' => $achievement,
-                    'remaining' => 100 - $achievement,
-                ];
+                $achieved = $this->achievedQtyForBranch($branchItem->name, $selectedCategory);
             }
 
-            $ranked = $this->rankBy($rows, 'achievement');
-            $yourBranch = collect($ranked)->firstWhere('branch_id', $yourBranchId);
-            $otherBranches = collect($ranked)->where('branch_id', '!=', $yourBranchId)->values()->all();
+            $achievement = $target > 0 ? min(100, round(($achieved / $target) * 100)) : 0;
 
-            $response[] = [
-                'category' => ucfirst($category),
-                'your_branch' => $yourBranch,
-                'branches' => $otherBranches,
+            $rows[] = [
+                'branch_id' => $branchItem->id,
+                'branch' => $branchItem->name,
+                'target' => $target,
+                'achieved' => $achieved,
+                'achievement' => $achievement,
+                'remaining' => 100 - $achievement,
             ];
         }
 
-        return $response;
+        $ranked = $this->rankBy($rows, 'achievement');
+        $yourBranch = collect($ranked)->firstWhere('branch_id', $yourBranchId);
+        $otherBranches = collect($ranked)->where('branch_id', '!=', $yourBranchId)->values()->all();
+
+        return [
+            'category' => $selectedCategory === 'overall' ? 'Overall' : ucfirst($selectedCategory),
+            'your_branch' => $yourBranch,
+            'branches' => $otherBranches,
+        ];
+    }
+
+    private function branchCategoryFilters(): array
+    {
+        return [
+            'overall' => 'Overall',
+            'garments' => 'Garments',
+            'unstitched' => 'Unstitched',
+            'accessories' => 'Accessories',
+        ];
     }
 
     private function regionConversionRows(int $yourRegionId, Carbon $from, Carbon $to): array
