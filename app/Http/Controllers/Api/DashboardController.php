@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AssignedTarget;
+use App\Models\Commission;
 use App\Models\FootfallDailySummary;
 use App\Models\Sale;
 use App\Models\SaleItem;
+use App\Models\SaleStaff;
 use App\Models\Slab;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -519,6 +521,173 @@ public function conversionRate(Request $request)
 
     ]);
 
+}
+
+public function staffComparison(Request $request)
+{
+    $user = Auth::user();
+
+    if (!$user->branch_id) {
+        return response()->json([
+            'status' => 404,
+            'message' => 'Branch not found'
+        ]);
+    }
+
+    $type = $request->type ?? 'monthly';
+
+    if ($type == 'monthly') {
+
+        $from = Carbon::now()->startOfMonth();
+        $to   = Carbon::now()->endOfMonth();
+
+    } else {
+
+        $from = Carbon::now()->startOfWeek();
+        $to   = Carbon::now()->endOfWeek();
+
+    }
+
+    $month = Carbon::now()->format('F');
+    $year  = Carbon::now()->year;
+
+    $commissionRate = Commission::where('role','sales_staff')
+                        ->value('commission') ?? 0;
+
+    $staffMembers = SaleStaff::where('branch_id',$user->branch_id)->get();
+
+    $rows = [];
+
+    foreach ($staffMembers as $staff) {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Assigned Target
+        |--------------------------------------------------------------------------
+        */
+
+        $target = AssignedTarget::where('user_id',$staff->id)
+            ->where('month',$month)
+            ->where('year',$year)
+            ->where('status','approved')
+            ->sum('target');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Achieved Quantity
+        |--------------------------------------------------------------------------
+        */
+        
+        $saleItems = SaleItem::where('salesperson_code', $staff->employee_id)
+            ->whereHas('sale',function($q) use($from,$to){
+
+                $q->whereBetween('date',[
+                    $from->toDateString(),
+                    $to->toDateString()
+                ]);
+
+            })->get();
+
+        $achieved = $saleItems->sum('quantity');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Commission
+        |--------------------------------------------------------------------------
+        */
+
+        $saleAmount = $saleItems->sum(function($item){
+
+            return $item->price * $item->quantity;
+
+        });
+
+        $commission = round(
+            $saleAmount * ($commissionRate / 100),
+            2
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Percentage
+        |--------------------------------------------------------------------------
+        */
+
+        $percentage = $target > 0
+            ? round(($achieved / $target) * 100)
+            : 0;
+
+        if($percentage > 100){
+            $percentage = 100;
+        }
+
+        $rows[] = [
+
+            'staff_id' => $staff->id,
+
+            'name' => $staff->name,
+
+            'target' => $target,
+
+            'achieved' => $achieved,
+
+            'achievement_percentage' => $percentage,
+
+            'remaining_percentage' => 100 - $percentage,
+
+            'commission' => round($commission)
+
+        ];
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ranking
+    |--------------------------------------------------------------------------
+    */
+
+    usort($rows,function($a,$b){
+
+        return $b['achievement_percentage'] <=> $a['achievement_percentage'];
+
+    });
+
+    foreach($rows as $index=>&$row){
+
+        $row['rank'] = $index + 1;
+
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Logged-in Staff
+    |--------------------------------------------------------------------------
+    */
+
+    $yourData = collect($rows)->firstWhere('staff_id',$user->id);
+
+    $others = collect($rows)
+        ->where('staff_id','!=',$user->id)
+        ->take(6)
+        ->values();
+
+    return response()->json([
+
+        'status' => 200,
+
+        'message' => 'Staff Comparison',
+
+        'data' => [
+
+            'type' => $type,
+
+            'your_data' => $yourData,
+
+            'staff' => $others
+
+        ]
+
+    ]);
 }
 
 }

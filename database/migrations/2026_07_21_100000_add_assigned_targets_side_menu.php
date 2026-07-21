@@ -3,7 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
-class AddSalesHistorySideMenu extends Migration
+class AddAssignedTargetsSideMenu extends Migration
 {
     /**
      * Run the migrations.
@@ -12,11 +12,11 @@ class AddSalesHistorySideMenu extends Migration
      */
     public function up()
     {
-        $exists = DB::table('side_menus')->where('name', 'Sales History')->exists();
+        $exists = DB::table('side_menus')->where('name', 'Assigned Targets')->exists();
 
         if (!$exists) {
             DB::table('side_menus')->insert([
-                'name' => 'Sales History',
+                'name' => 'Assigned Targets',
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -30,6 +30,6 @@ class AddSalesHistorySideMenu extends Migration
      */
     public function down()
     {
-        DB::table('side_menus')->where('name', 'Sales History')->delete();
+        DB::table('side_menus')->where('name', 'Assigned Targets')->delete();
     }
 }

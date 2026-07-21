@@ -16,11 +16,12 @@ class TrainingVideoController extends Controller
 
     public function store(Request $request)
 {
-    $request->validate([
-        'roles' => 'required',
-        'title' => 'required',
-        'description' => 'required',
-    ]);
+    
+    $training = $request->id
+            ? TrainingVideo::findOrFail($request->id)
+            : new TrainingVideo();
+    
+      $image = $training->image;
 
      if ($request->hasFile('image')) {
 
@@ -38,6 +39,8 @@ class TrainingVideoController extends Controller
 
         }
 
+        $audio = $training->audio;
+
         if ($request->hasFile('audio')) {
     
                 $file = $request->file('audio');
@@ -54,17 +57,106 @@ class TrainingVideoController extends Controller
     
             }
 
-    TrainingVideo::updateOrCreate(
-        ['id' => $request->id],
-        [
-            'roles' => $request->roles,
-            'title' => $request->title,
-            'video_url' => $request->video_url,
-            'description' => $request->description,
-            'image' => $image,
-            'audio' => $audio,
-        ]
-    );
+     if ($request->training_type === 'product') {
+
+            $training->training_type = $request->training_type;
+
+            $training->roles = $request->roles;
+
+            $training->product_code = $request->product_code;
+
+            $training->product_name = $request->product_name;
+
+            $training->product_category = $request->product_category;
+
+            $training->product_sub_category = $request->product_sub_category;
+
+            $training->product_size = $request->product_size;
+
+            $training->product_color = $request->product_color;
+
+            $training->price = $request->price;
+
+            $training->training_details = $request->training_details;
+
+            $training->image = $image;
+
+            $training->audio = $audio;
+
+            $training->video_url = null;
+
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Display Training
+        |--------------------------------------------------------------------------
+        */
+
+        elseif ($request->training_type === 'display') {
+            $training->category = $request->category;
+
+            $training->roles = $request->roles;
+
+            $training->training_type = $request->training_type;
+
+            $training->title = $request->title;
+
+            $training->description = $request->description;
+
+            $training->video_url = null;
+
+            $training->image = $image;
+
+            $training->audio = $audio;
+
+            // Clear product data
+            $training->product_code = null;
+            $training->product_name = null;
+            $training->product_category = null;
+            $training->product_sub_category = null;
+            $training->product_size = null;
+            $training->product_color = null;
+            $training->price = null;
+
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Customer Training
+        |--------------------------------------------------------------------------
+        */
+
+        elseif ($request->training_type === 'customer') {
+            $training->roles = $request->roles;
+
+            $training->training_type = $request->training_type;
+
+            $training->title = $request->title;
+
+            $training->description = $request->description;
+
+            $training->video_url = $request->video_url;
+
+            $training->image = null;
+
+            $training->audio = null;
+
+            // Clear product data
+            $training->product_code = null;
+            $training->product_name = null;
+            $training->product_category = null;
+            $training->product_sub_category = null;
+            $training->product_size = null;
+            $training->product_color = null;
+            $training->price = null;
+
+        }
+
+
+        $training->save();
 
     return back()->with('success','Training Video Saved Successfully');
 }

@@ -26,7 +26,7 @@ class Kernel extends ConsoleKernel
     {
         // $schedule->command('inspire')->hourly();
         $schedule->command('notifications:dispatch')->everyMinute();
-        $schedule->command('sync:thirdparty')->everyMinute();
+        $schedule->command('sync:thirdparty')->everyThreeHours();
     }
 
     /**

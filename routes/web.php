@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Admin\AnnouncementController;
+use App\Http\Controllers\Admin\AssignedTargetController;
 use App\Http\Controllers\Admin\ASMController;
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\BranchController;
@@ -244,6 +246,16 @@ Route::get('/sales-history', [SalesHistoryController::class, 'index'])->name('sa
 
 // ############ Peer Branch Conversion #################
 Route::get('/peer-branch-conversion', [PeerBranchConversionController::class, 'index'])->name('peer.branch.conversion.index')->middleware('check.permission:Peer Branch Conversion,view');
+
+// ############ Announcements #################
+Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcement.index')->middleware('check.permission:Announcements,view');
+Route::post('/announcements/store', [AnnouncementController::class, 'store'])->name('announcement.store')->middleware('check.permission:Announcements,create');
+Route::post('/announcements/update/{id}', [AnnouncementController::class, 'update'])->name('announcement.update')->middleware('check.permission:Announcements,edit');
+Route::delete('/announcements/destroy/{id}', [AnnouncementController::class, 'delete'])->name('announcement.destroy')->middleware('check.permission:Announcements,delete');
+
+// ############ Assigned Targets #################
+Route::get('/assigned-targets', [AssignedTargetController::class, 'index'])->name('assigned.target.index')->middleware('check.permission:Assigned Targets,view');
+Route::post('/assigned-targets/approve', [AssignedTargetController::class, 'approve'])->name('assigned.target.approve')->middleware('check.permission:Assigned Targets,edit');
 
     // ############ Sub Admin #################
     Route::controller(SubAdminController::class)->group(function () {

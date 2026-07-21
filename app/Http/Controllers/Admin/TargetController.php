@@ -134,16 +134,6 @@ public function toggleStatus(Request $request)
 
     $saved = $target->save();
 
-    if ($saved && $request->status == 1) {
-
-        AssignedTarget::where('branch_id', $target->branch_id)
-            ->where('month', $target->month)
-            ->where('year', $target->year)
-            ->where('category', $target->category) // approve only this category
-            ->update([
-                'status' => 'approved'
-            ]);
-    }
 
     return response()->json([
         'success' => $saved,

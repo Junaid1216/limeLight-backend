@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\SeoController;
+use App\Http\Controllers\Api\AnnouncementController;
 use App\Http\Controllers\Api\AsmComparisonController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BranchManagerComparisonController;
@@ -75,6 +76,10 @@ Route::middleware('auth:sanctum')->group(function () {
     //Get training videos
     Route::get('/training-videos', [TrainingVideoController::class, 'getTrainingVideos']);
 
+    // Announcements (filters: all|hr|performance|promotions)
+    Route::get('/announcements', [AnnouncementController::class, 'index']);
+    Route::get('/announcements/{id}', [AnnouncementController::class, 'show']);
+
     //Get monthly targets
     Route::get('/monthly-targets', [MonthlyTargetController::class, 'getMonthlyTarget']);
     
@@ -135,6 +140,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //Notifications
     Route::get('/notifications', [NotificationController::class, 'getUserNotifications']);
+
+    Route::get('/sales-staff-comparison',[DashboardController::class,'staffComparison']);
+
+    Route::get('/product-training',[TrainingVideoController::class, 'trainingProduct']);
+
+    Route::get('/training-display',[TrainingVideoController::class, 'trainingDisplay']);
 });
 
 Route::post('/admin/approve-targets/{branchManagerId}/{month}/{year}',[MonthlyTargetController::class, 'approveTargets']);

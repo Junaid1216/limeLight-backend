@@ -1,3 +1,25 @@
+<style>
+.notification-dropdown {
+    width: 350px;
+    max-width: 90vw;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.notification-item {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.notification-title,
+.notification-description {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+</style>
+
 @php
 $notifications = \App\Models\Notification::where('user_type', 'admin')
     ->latest()
@@ -97,7 +119,7 @@ $unreadCount = \App\Models\Notification::where('user_type', 'admin')
 
     </a>
 
-    <div class="dropdown-menu dropdown-menu-end p-0" style="width:350px">
+    <div class="dropdown-menu dropdown-menu-end p-0 notification-dropdown">
 
         <div class="p-3 border-bottom">
             <strong>Notifications</strong>
@@ -105,14 +127,18 @@ $unreadCount = \App\Models\Notification::where('user_type', 'admin')
 
         @forelse($notifications as $notification)
 
-            <a href="{{ route('admin.notifications.read',$notification->id) }}"
-               class="dropdown-item">
+            <a href="{{ route('admin.notifications.read', $notification->id) }}"
+               class="dropdown-item notification-item">
 
-                <strong>{{ $notification->title }}</strong>
+                <strong class="notification-title">
+                    {{ $notification->title }}
+                </strong>
 
                 <br>
 
-                <small>{{ $notification->description }}</small>
+                <small class="notification-description">
+                    {{ $notification->description }}
+                </small>
 
                 <br>
 

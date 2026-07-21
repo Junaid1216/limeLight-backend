@@ -221,6 +221,26 @@
                 </li>
             @endif
 
+            @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Announcements') && $sideMenuPermissions['Announcements']->contains('view')))
+                <li class="dropdown {{ request()->is('admin/announcements') || request()->is('admin/announcements/*') ? 'active' : ''}}">
+                    <a href="{{ url('admin/announcements') }}" class="nav-link">
+                        <i data-feather="volume-2"></i>
+                        <span>Announcements</span>
+                    </a>
+                </li>
+            @endif
+
+            @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Assigned Targets') && $sideMenuPermissions['Assigned Targets']->contains('view')))
+                <li class="dropdown {{ request()->is('admin/assigned-targets') || request()->is('admin/assigned-targets/*') ? 'active' : ''}}">
+                    <a href="{{ url('admin/assigned-targets') }}" class="nav-link">
+                        <i data-feather="check-square"></i>
+                        <span>Assigned Targets</span>
+                    </a>
+                </li>
+            @endif
+
 
             {{--  Blogs --}}
 

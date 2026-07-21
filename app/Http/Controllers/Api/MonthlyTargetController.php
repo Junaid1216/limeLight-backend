@@ -161,7 +161,10 @@ class MonthlyTargetController extends Controller
     Notification::create([
     'user_type' => 'admin',
     'title' => 'Monthly Targets Approval',
-    'description' => $user->name . ' has assigned monthly targets for approval.',
+    'description' => $user->name . ' (' .
+                     optional($user->designation)->name . ') from ' .
+                     optional($branch)->name .
+                     ' has assigned monthly targets for approval.',
     'is_read' => 0
     ]);
 
