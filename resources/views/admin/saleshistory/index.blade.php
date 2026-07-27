@@ -18,7 +18,7 @@
                                             <label for="role">Role</label>
                                             <select name="role" id="role" class="form-control" required>
                                                 <option value="" disabled {{ empty($role) ? 'selected' : '' }}>Select Role</option>
-                                                <option value="asm" {{ $role === 'asm' ? 'selected' : '' }}>Area Sales Manager</option>
+                                                {{-- <option value="asm" {{ $role === 'asm' ? 'selected' : '' }}>Area Sales Manager</option> --}}
                                                 <option value="branch_manager" {{ $role === 'branch_manager' ? 'selected' : '' }}>Branch Manager</option>
                                                 <option value="sale_staff" {{ $role === 'sale_staff' ? 'selected' : '' }}>Sales Staff</option>
                                             </select>

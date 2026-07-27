@@ -37,6 +37,7 @@ class BranchController extends Controller
             'city' => $request->city,
             'region_id' => $request->region,
             'address' => $request->address,
+            'branch_id' => $request->branch_id,
         ]);
 
         return redirect()->route('branch.index')->with('success', 'Branch Created Successfully');
@@ -65,6 +66,7 @@ class BranchController extends Controller
             'city' => $request->city,
             'region_id' => $request->region,
             'address' => $request->address,
+            'branch_id' => $request->branch_id,
         ]);
 
         return redirect()->route('branch.index')->with('success', 'Branch Updated Successfully');

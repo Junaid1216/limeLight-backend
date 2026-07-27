@@ -293,15 +293,15 @@
              {{-- Contact Us  --}}
 
 
-            @if (Auth::guard('admin')->check() ||
+            {{-- @if (Auth::guard('admin')->check() ||
                     ($sideMenuPermissions->has('Contact us') && $sideMenuPermissions['Contact us']->contains('view')))
-                {{-- Contact Us --}}
+                Contact Us
                 <li class="dropdown {{ request()->is('admin/admin/contact-us*') ? 'active' : '' }}">
                     <a href="{{ url('admin/admin/contact-us') }}" class="nav-link"><i
                             data-feather="mail"></i><span>Contact
                             Us</span></a>
                 </li>
-            @endif
+            @endif --}}
 
 
             {{--  About Us --}}

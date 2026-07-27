@@ -22,55 +22,187 @@ class BranchManagerComparisonController extends Controller
     $branch = $user->branch;
 
     if (!$branch) {
-
         return response()->json([
             'status' => 404,
             'message' => 'Branch not found'
-        ],404);
+        ], 404);
     }
 
-    $month = Carbon::now()->format('F');
-    $year = Carbon::now()->year;
+    $commissionRate = Commission::where('role', 'sales_staff')
+        ->value('commission') ?? 0;
 
-    $commissionRate = Commission::where('role','sales_staff')
-                        ->value('commission') ?? 0;
+    $staffs = SaleStaff::where('branch_id', $branch->id)->get();
 
-    $staffs = SaleStaff::where('branch_id',$branch->id)
-                ->get();
+    /*
+    |--------------------------------------------------------------------------
+    | Category Mappings
+    |--------------------------------------------------------------------------
+    */
+
+    $categoryMappings = [
+
+        'garments' => [
+            'signature',
+            'flowy',
+            'trouser',
+            'regular prints',
+            'fusion co-ords',
+            'festive',
+            'composed rotary',
+            'premium',
+            'casual',
+            'glam',
+            'dailywear',
+            'regular running',
+            'regular panel',
+            'modish',
+            'trendy',
+            'premium wear',
+            'tops'
+        ],
+
+        'unstitched' => [
+            'dupatta - dyed',
+            'unstitched trousers'
+        ],
+
+        'accessories' => [
+            'hand bag',
+            'scarves - printed',
+            'sunglasses',
+            'jewellery',
+            'clutches',
+            'perfumes',
+            'body mist',
+            'non-tradable'
+        ]
+
+    ];
 
     $response = [];
 
-    foreach($staffs as $staff){
+    foreach ($staffs as $staff) {
 
         /*
         |--------------------------------------------------------------------------
-        | Target
+        | Targets By Category
         |--------------------------------------------------------------------------
         */
 
-        $target = AssignedTarget::where('user_id',$staff->id)
-                    ->sum('target');
+        $targets = AssignedTarget::where('user_id', $staff->id)
+            ->get();
+
+        $assigned = [
+            'garments' => 0,
+            'unstitched' => 0,
+            'accessories' => 0
+        ];
+
+        foreach ($targets as $target) {
+
+            $category = strtolower(trim($target->category));
+
+            if (isset($assigned[$category])) {
+
+                $assigned[$category] += $target->target;
+
+            }
+
+        }
 
         /*
         |--------------------------------------------------------------------------
-        | Achieved
+        | Achieved By Category
         |--------------------------------------------------------------------------
         */
 
-        $achieved = SaleItem::where('salesperson_code',$staff->employee_id)
-                    ->sum('quantity');
+        $achieved = [
+            'garments' => 0,
+            'unstitched' => 0,
+            'accessories' => 0
+        ];
 
         /*
         |--------------------------------------------------------------------------
-        | Sale Amount
+        | Get Staff Sales
+        |--------------------------------------------------------------------------
+        |
+        | Same employee + same branch logic as staffDetails()
+        |
+        */
+
+        $saleItems = SaleItem::where(
+            'salesperson_code',
+            $staff->employee_id
+        )
+        ->whereHas('sale', function ($q) use ($branch) {
+
+            $q->where('shop_name', $branch->name);
+
+        })
+        ->get();
+
+        foreach ($saleItems as $item) {
+
+            $qty = max(0, (int) $item->quantity);
+
+            $itemCategory = strtolower(trim($item->category));
+
+            foreach ($categoryMappings as $category => $mapping) {
+
+                if (in_array($itemCategory, $mapping)) {
+
+                    $achieved[$category] += $qty;
+
+                    break;
+
+                }
+
+            }
+
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Cap Achieved By Category
         |--------------------------------------------------------------------------
         */
 
-        $saleAmount = SaleItem::where('salesperson_code',$staff->employee_id)
-                        ->selectRaw('SUM(quantity * price) as total')
-                        ->value('total');
+        foreach ($achieved as $category => $value) {
 
-        $saleAmount = $saleAmount ?? 0;
+            $achieved[$category] = min(
+                $value,
+                $assigned[$category]
+            );
+
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Total Target & Achieved
+        |--------------------------------------------------------------------------
+        */
+
+        $totalTarget = array_sum($assigned);
+
+        $totalAchieved = array_sum($achieved);
+
+        $remaining = max(
+            $totalTarget - $totalAchieved,
+            0
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Achievement Percentage
+        |--------------------------------------------------------------------------
+        */
+
+        $percentage = $totalTarget > 0
+            ? round(($totalAchieved / $totalTarget) * 100)
+            : 0;
+
+        $percentage = min($percentage, 100);
 
         /*
         |--------------------------------------------------------------------------
@@ -78,35 +210,46 @@ class BranchManagerComparisonController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $commission = ($saleAmount * $commissionRate)/100;
+        $saleAmount = SaleItem::where(
+            'salesperson_code',
+            $staff->employee_id
+        )
+        ->whereHas('sale', function ($q) use ($branch) {
+
+            $q->where('shop_name', $branch->name);
+
+        })
+        ->selectRaw('SUM(quantity * price) as total')
+        ->value('total') ?? 0;
+
+        $commission = round(
+            $saleAmount * ($commissionRate / 100),
+            2
+        );
 
         /*
         |--------------------------------------------------------------------------
-        | Percentage
+        | Response
         |--------------------------------------------------------------------------
         */
 
-        $percentage = $target > 0
-            ? round(($achieved/$target)*100)
-            :0;
-
-        if($percentage>100){
-            $percentage = 100;
-        }
-
         $response[] = [
 
-            'staff_id'=>$staff->id,
+            'staff_id' => $staff->id,
 
-            'staff_name'=>$staff->name,
+            'staff_name' => $staff->name,
 
-            'target'=>$target,
+            'target' => $totalTarget,
 
-            'achieved_percentage'=>$percentage,
+            'achieved' => $totalAchieved,
 
-            'remaining_percentage'=>100-$percentage,
+            'remaining' => $remaining,
 
-            'commission'=>round($commission,2)
+            'achieved_percentage' => $percentage,
+
+            'remaining_percentage' => 100 - $percentage,
+
+            'commission' => $commission
 
         ];
 
@@ -118,25 +261,28 @@ class BranchManagerComparisonController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    usort($response,function($a,$b){
+    usort($response, function ($a, $b) {
 
-        return $b['achieved_percentage'] <=> $a['achieved_percentage'];
+        return $b['achieved_percentage']
+            <=> $a['achieved_percentage'];
 
     });
 
-    foreach($response as $index=>&$row){
+    foreach ($response as $index => &$row) {
 
-        $row['rank']=$index+1;
+        $row['rank'] = $index + 1;
 
     }
 
+    unset($row);
+
     return response()->json([
 
-        'status'=>200,
+        'status' => 200,
 
-        'message'=>'Staff comparison',
+        'message' => 'Staff comparison',
 
-        'data'=>$response
+        'data' => $response
 
     ]);
 }
@@ -521,7 +667,16 @@ public function staffDetails($id)
 
     foreach ($assigned as $category => $target) {
 
-        $done = $achieved[$category];
+        /*
+        |--------------------------------------------------------------------------
+        | Achieved Cannot Be Greater Than Target
+        |--------------------------------------------------------------------------
+        */
+
+        $done = min(
+            $achieved[$category],
+            $target
+        );
 
         $percentage = $target > 0
             ? round(($done / $target) * 100)

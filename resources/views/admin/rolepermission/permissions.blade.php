@@ -63,7 +63,7 @@
                     @foreach ($sideMenus as $menu)
                         @php
                             $hasPermission = collect($existingPermissions)->contains(function ($perm) use ($menu) {
-                                return $perm['side_menue_id'] == $menu->id;
+                                return $perm['side_menu_id'] == $menu->id;
                             });
 
                             $actions = collect($sideMenuPermissions[$menu->id] ?? [])
@@ -98,7 +98,7 @@
                                             $menu,
                                             $action,
                                         ) {
-                                            return $perm['side_menue_id'] == $menu->id &&
+                                            return $perm['side_menu_id'] == $menu->id &&
                                                 $perm['permission']['name'] == $action;
                                         });
                                     @endphp

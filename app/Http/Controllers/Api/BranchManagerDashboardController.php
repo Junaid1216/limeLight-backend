@@ -60,6 +60,9 @@ class BranchManagerDashboardController extends Controller
         ->whereYear('date', Carbon::now()->year)
         ->sum('net_total');
 
+        // Achieved should never be greater than target
+        $achieved = min($achieved, $monthlyTarget);
+
     /*
     |--------------------------------------------------------------------------
     | Remaining
@@ -122,6 +125,46 @@ public function categoryPerformance()
     ];
 
     $response = [];
+
+    $categoryMappings = [
+
+    'garments' => [
+        'signature',
+        'flowy',
+        'trouser',
+        'regular prints',
+        'fusion co-ords',
+        'festive',
+        'composed rotary',
+        'premium',
+        'casual',
+        'glam',
+        'dailywear',
+        'regular running',
+        'regular panel',
+        'modish',
+        'trendy',
+        'premium wear',
+        'tops'
+    ],
+
+    'unstitched' => [
+        'dupatta - dyed',
+        'unstitched trousers'
+    ],
+
+    'accessories' => [
+        'hand bag',
+        'scarves - printed',
+        'sunglasses',
+        'jewellery',
+        'clutches',
+        'perfumes',
+        'body mist',
+        'non-tradable'
+    ]
+
+];
 
     foreach ($categories as $category) {
 
@@ -210,90 +253,145 @@ public function categoryPerformance()
                     }
                 }
 
-        /*
+                /*
         |--------------------------------------------------------------------------
-        | Weekly Performance
+        | Achieved Cannot Be Greater Than Monthly Target
         |--------------------------------------------------------------------------
         */
 
-        $weekly = [];
+        $achieved = min(
+            $achieved,
+            $target->monthly_target
+        );
 
-        for ($i = 1; $i <= 4; $i++) {
+       /*
+|--------------------------------------------------------------------------
+| Weekly Performance
+|--------------------------------------------------------------------------
+*/
 
-            $start = Carbon::now()->startOfMonth()->addWeeks($i - 1);
+$weekly = [];
 
-            $end = $start->copy()->endOfWeek();
+$monthStart = Carbon::now()->startOfMonth();
+$monthEnd   = Carbon::now()->endOfMonth();
 
-            if ($end->month != Carbon::now()->month) {
-                $end = Carbon::now()->endOfMonth();
-            }
+for ($i = 1; $i <= 4; $i++) {
 
-            $weekAchieved = 0;
+    /*
+    |--------------------------------------------------------------------------
+    | Week Start & End
+    |--------------------------------------------------------------------------
+    */
 
-            $weekItems = SaleItem::whereHas('sale', function ($q) use ($branch, $start, $end) {
-                $q->where('shop_name', $branch->name)
-                ->whereBetween('date', [$start, $end]);
-            })->get();
+    $start = $monthStart->copy()
+        ->addDays(($i - 1) * 7)
+        ->startOfDay();
 
-            foreach ($weekItems as $item) {
+    $end = $start->copy()
+        ->addDays(6)
+        ->endOfDay();
 
-                $itemCategory = strtolower(trim($item->category));
-                $qty = max(0, $item->quantity);
 
-                if (
-                    $category == 'garments' &&
-                    in_array($itemCategory, [
-                        'signature',
-                        'flowy',
-                        'trouser',
-                        'regular prints',
-                        'fusion co-ords',
-                        'festive',
-                        'composed rotary',
-                        'premium',
-                        'casual',
-                        'glam',
-                        'dailywear',
-                        'regular running',
-                        'regular panel',
-                        'modish',
-                        'trendy',
-                        'premium wear',
-                        'tops'
-                    ])
-                ) {
-                    $weekAchieved += $qty;
-                }
+    /*
+    |--------------------------------------------------------------------------
+    | Make Sure Week Does Not Go Outside Current Month
+    |--------------------------------------------------------------------------
+    */
 
-                elseif (
-                    $category == 'unstitched' &&
-                    in_array($itemCategory, [
-                        'dupatta - dyed',
-                        'unstitched trousers'
-                    ])
-                ) {
-                    $weekAchieved += $qty;
-                }
+    if ($start->lt($monthStart)) {
+        $start = $monthStart->copy();
+    }
 
-                elseif (
-                    $category == 'accessories' &&
-                    in_array($itemCategory, [
-                        'hand bag',
-                        'scarves - printed',
-                        'sunglasses',
-                        'jewellery',
-                        'clutches',
-                        'perfumes',
-                        'body mist',
-                        'non-tradable'
-                    ])
-                ) {
-                    $weekAchieved += $qty;
-                }
-            }
+    if ($end->gt($monthEnd)) {
+        $end = $monthEnd->copy();
+    }
 
-            $weekly["week{$i}"] = $weekAchieved;
+
+    /*
+    |--------------------------------------------------------------------------
+    | Weekly Achieved
+    |--------------------------------------------------------------------------
+    */
+
+    $weekAchieved = 0;
+
+    $weekItems = SaleItem::whereHas('sale', function ($q) use (
+        $branch,
+        $start,
+        $end
+    ) {
+
+        $q->where('shop_name', $branch->name)
+            ->whereBetween('date', [
+                $start,
+                $end
+            ]);
+
+    })->get();
+
+
+    foreach ($weekItems as $item) {
+
+        $itemCategory = strtolower(
+            trim($item->category)
+        );
+
+        $qty = max(
+            0,
+            $item->quantity
+        );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Check Category
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            in_array(
+                $itemCategory,
+                $categoryMappings[$category]
+            )
+        ) {
+
+            $weekAchieved += $qty;
+
         }
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Weekly Target
+    |--------------------------------------------------------------------------
+    */
+
+    $weeklyTarget = $target->{'week_' . $i} ?? 0;
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Weekly Achieved Cannot Exceed Weekly Target
+    |--------------------------------------------------------------------------
+    */
+
+    $weekAchieved = min(
+        $weekAchieved,
+        $weeklyTarget
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Store Weekly Performance
+    |--------------------------------------------------------------------------
+    */
+
+    $weekly["week{$i}"] = $weekAchieved;
+
+}
 
         $remaining = max($target->monthly_target - $achieved, 0);
 

@@ -44,7 +44,7 @@ class DashboardController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $targets = AssignedTarget::where('user_id',$user->id)->get();
+        $targets = AssignedTarget::where('user_id',$user->id)->where('status','approved')->get();
 
         $assigned = [
             'garments'=>0,
@@ -376,6 +376,16 @@ class DashboardController extends Controller
             $slab = Slab::where('from_amount', '<=', $sale->net_total)
                 ->where('to_amount', '>=', $sale->net_total)
                 ->first();
+
+                 /*
+                |--------------------------------------------------------------------------
+                | If no slab exists for this net sale, skip this sale
+                |--------------------------------------------------------------------------
+                */
+
+                if (!$slab) {
+                    continue;
+                }
             
             $records[] = [
 

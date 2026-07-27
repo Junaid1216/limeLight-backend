@@ -48,8 +48,8 @@ class SyncThirdPartyData extends Command
         
         $branches = Branch::all();
 
-        $start = Carbon::now()->subWeek()->startOfWeek();
-        $end = Carbon::now()->subWeek()->endOfWeek();
+        $start = Carbon::yesterday()->startOfDay();
+        $end = Carbon::today()->endOfDay();
 
         foreach ($branches as $branch) {
 
@@ -153,9 +153,9 @@ private function syncSales($branch,$start,$end)
 
         'AppKey'=>'jgiDwu3HwlKgbS9qorWmsVzhJ4oP0s5j',
 
-        'SaleFromDate' => '2026-07-11 00:00:00',
+        'SaleFromDate' => $start->format('Y-m-d H:i:s'),
 
-        'SaleToDate' => '2026-07-12 23:59:59',
+        'SaleToDate' => $end->format('Y-m-d H:i:s'),
 
     ]);
 

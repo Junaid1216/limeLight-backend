@@ -158,7 +158,7 @@ class TrainingVideoController extends Controller
 
         $training->save();
 
-    return back()->with('success','Training Video Saved Successfully');
+    return back()->with('success','Training Module Saved Successfully');
 }
 
 public function delete($id)
@@ -166,6 +166,6 @@ public function delete($id)
     $video = TrainingVideo::findOrFail($id);
     $video->delete();
 
-    return redirect()->route('training.video.index')->with('success', 'Training Video Deleted Successfully');
+    return redirect()->route('training.video.index')->with('success', 'Training Module Deleted Successfully');
 }
 }

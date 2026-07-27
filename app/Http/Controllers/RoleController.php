@@ -122,7 +122,7 @@ public function permissions($id)
         if ($permission) {
             UserRolePermission::create([
                 'role_id' => $request->role_id,
-                'side_menue_id' => $sideMenuId,
+                'side_menu_id' => $sideMenuId,
                 'permission_id' => $permission->id,
             ]);
 

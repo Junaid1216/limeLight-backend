@@ -255,6 +255,8 @@ public function branchComparison()
 
             }
 
+            $achieved = min($achieved, $target);
+
             $percentage = $target > 0
                 ? round(($achieved / $target) * 100)
                 : 0;
@@ -327,15 +329,17 @@ public function regionComparison(Request $request)
 
     $type = $request->type ?? 'weekly';
 
-    if ($type == 'monthly') {
+     if ($type == 'monthly') {
 
-          $from = Carbon::parse('2026-07-11')->startOfDay();
-          $to   = Carbon::parse('2026-07-12')->endOfDay();
+        $from = Carbon::now()->startOfMonth();
+
+        $to = Carbon::now()->endOfMonth();
 
     } else {
 
-           $from = Carbon::parse('2026-07-11')->startOfDay();
-           $to   = Carbon::parse('2026-07-12')->endOfDay();
+        $from = Carbon::today()->subDays(6)->startOfDay();
+
+        $to = Carbon::today()->endOfDay();
 
     }
 
@@ -381,55 +385,65 @@ public function regionComparison(Request $request)
         ];
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Ranking
-    |--------------------------------------------------------------------------
-    */
+   /*
+|--------------------------------------------------------------------------
+| Ranking
+|--------------------------------------------------------------------------
+*/
 
-    usort($rows, function ($a, $b) {
+usort($rows, function ($a, $b) {
 
-        return $b['conversion_percentage'] <=> $a['conversion_percentage'];
+    return $b['conversion_percentage'] <=> $a['conversion_percentage'];
 
-    });
+});
 
-    foreach ($rows as $index => &$row) {
+foreach ($rows as $index => &$row) {
 
-        $row['rank'] = $index + 1;
+    $row['rank'] = $index + 1;
 
-    }
+}
 
-    /*
-    |--------------------------------------------------------------------------
-    | Logged-in ASM Region
-    |--------------------------------------------------------------------------
-    */
+unset($row);
 
-    $yourRegion = collect($rows)->firstWhere('region_id', $asm->region_id);
+/*
+|--------------------------------------------------------------------------
+| Logged-in ASM Region
+|--------------------------------------------------------------------------
+*/
 
-    $otherRegions = collect($rows)
-        ->where('region_id', '!=', $asm->region_id)
-        ->values();
+$yourRegion = collect($rows)
+    ->firstWhere('region_id', $asm->region_id);
 
-    return response()->json([
+/*
+|--------------------------------------------------------------------------
+| Top 7 Other Regions
+|--------------------------------------------------------------------------
+*/
 
-        'status' => 200,
+$otherRegions = collect($rows)
+    ->where('region_id', '!=', $asm->region_id)
+    ->take(7)
+    ->values();
 
-        'message' => 'Region Comparison',
+return response()->json([
 
-        'data' => [
+    'status' => 200,
 
-            'from' => $from->toDateString(),
+    'message' => 'Region Comparison',
 
-            'to' => $to->toDateString(),
+    'data' => [
 
-            'your_region' => $yourRegion,
+        'from' => $from->toDateString(),
 
-            'regions' => $otherRegions
+        'to' => $to->toDateString(),
 
-        ]
+        'your_region' => $yourRegion,
 
-    ]);
+        'regions' => $otherRegions
+
+    ]
+
+]);
 }
 
 public function regionCategoryComparison()
@@ -548,6 +562,22 @@ public function regionCategoryComparison()
                 }
             }
 
+             /*
+            |--------------------------------------------------------------------------
+            | Cap Achieved at Target
+            |--------------------------------------------------------------------------
+            */
+
+            if ($target > 0 && $achieved > $target) {
+                $achieved = $target;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Achievement Percentage
+            |--------------------------------------------------------------------------
+            */
+
             $percentage = $target > 0
                 ? round(($achieved / $target) * 100)
                 : 0;
@@ -580,18 +610,84 @@ public function regionCategoryComparison()
         */
 
         usort($rows, function ($a, $b) {
-            return $b['achievement_percentage'] <=> $a['achievement_percentage'];
+
+            return $b['achievement_percentage']
+                <=> $a['achievement_percentage'];
+
         });
 
+        /*
+        |--------------------------------------------------------------------------
+        | Assign Actual Rank
+        |--------------------------------------------------------------------------
+        */
+
         foreach ($rows as $index => &$row) {
+
             $row['rank'] = $index + 1;
+
         }
 
-        $yourRegion = collect($rows)->firstWhere('region_id', $asm->region_id);
+        unset($row);
 
-        $otherRegions = collect($rows)
-            ->where('region_id', '!=', $asm->region_id)
+        /*
+        |--------------------------------------------------------------------------
+        | Logged-in ASM Region
+        |--------------------------------------------------------------------------
+        */
+
+        $yourRegion = collect($rows)
+            ->firstWhere('region_id', $asm->region_id);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Get Top 7 Regions
+        |--------------------------------------------------------------------------
+        */
+
+        $topSeven = collect($rows)
+            ->take(7)
             ->values();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Ensure Logged-in ASM Region Is Included
+        |--------------------------------------------------------------------------
+        */
+
+        $yourRegionExists = $topSeven->contains(function ($region) use ($asm) {
+
+            return $region['region_id'] == $asm->region_id;
+
+        });
+
+        if (!$yourRegionExists && $yourRegion) {
+
+            // Remove the 7th region
+            $topSeven = $topSeven
+                ->take(6)
+                ->values();
+
+            // Add logged-in ASM's region
+            $topSeven->push($yourRegion);
+
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Sort Again By Actual Rank
+        |--------------------------------------------------------------------------
+        */
+
+        $topSeven = $topSeven
+            ->sortBy('rank')
+            ->values();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Response
+        |--------------------------------------------------------------------------
+        */
 
         $response[] = [
 
@@ -599,7 +695,7 @@ public function regionCategoryComparison()
 
             'your_region' => $yourRegion,
 
-            'regions' => $otherRegions
+            'regions' => $topSeven
 
         ];
     }
@@ -623,41 +719,228 @@ public function staffComparison(Request $request)
         return response()->json([
             'status' => 401,
             'message' => 'Unauthenticated'
-        ],401);
+        ], 401);
     }
 
-    $commissionRate = Commission::where('role','sales_staff')
+    $commissionRate = Commission::where('role', 'sales_staff')
         ->value('commission') ?? 0;
 
-    $branches = Branch::where('region_id',$asm->region_id)->get();
+    $branches = Branch::where('region_id', $asm->region_id)->get();
+
+    $categories = [
+        'garments',
+        'unstitched',
+        'accessories'
+    ];
+
+    $garmentsCategories = [
+        'signature',
+        'flowy',
+        'trouser',
+        'regular prints',
+        'fusion co-ords',
+        'festive',
+        'composed rotary',
+        'premium',
+        'casual',
+        'glam',
+        'dailywear',
+        'regular running',
+        'regular panel',
+        'modish',
+        'trendy',
+        'premium wear',
+        'tops'
+    ];
+
+    $unstitchedCategories = [
+        'dupatta - dyed',
+        'unstitched trousers'
+    ];
+
+    $accessoriesCategories = [
+        'hand bag',
+        'scarves - printed',
+        'sunglasses',
+        'jewellery',
+        'clutches',
+        'perfumes',
+        'body mist',
+        'non-tradable'
+    ];
 
     $response = [];
 
-    foreach($branches as $branch){
+    foreach ($branches as $branch) {
 
-        $staffList = SaleStaff::where('branch_id',$branch->id)->get();
+        $staffList = SaleStaff::where('branch_id', $branch->id)->get();
 
         $staffData = [];
 
-        foreach($staffList as $staff){
+        foreach ($staffList as $staff) {
 
             /*
             |--------------------------------------------------------------------------
-            | Target
+            | Total Target
             |--------------------------------------------------------------------------
             */
 
-            $target = AssignedTarget::where('user_id',$staff->id)
+            $target = AssignedTarget::where('user_id', $staff->id)
                 ->sum('target');
 
+
             /*
             |--------------------------------------------------------------------------
-            | Achieved
+            | Get Staff Sales
             |--------------------------------------------------------------------------
             */
 
-            $achieved = SaleItem::where('salesperson_code',$staff->employee_id)
-                ->sum('quantity');
+            $saleItems = SaleItem::where(
+                    'salesperson_code',
+                    $staff->employee_id
+                )
+                ->whereHas('sale', function ($q) use ($branch) {
+                    $q->where('shop_name', $branch->name);
+                })
+                ->get();
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Category Achieved
+            |--------------------------------------------------------------------------
+            */
+
+            $categoryAchieved = [
+                'garments' => 0,
+                'unstitched' => 0,
+                'accessories' => 0
+            ];
+
+
+            foreach ($saleItems as $item) {
+
+                $itemCategory = strtolower(trim($item->category));
+
+                $qty = max(0, (float) $item->quantity);
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | Garments
+                |--------------------------------------------------------------------------
+                */
+
+                if (in_array($itemCategory, $garmentsCategories)) {
+
+                    $categoryAchieved['garments'] += $qty;
+
+                }
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | Unstitched
+                |--------------------------------------------------------------------------
+                */
+
+                elseif (in_array($itemCategory, $unstitchedCategories)) {
+
+                    $categoryAchieved['unstitched'] += $qty;
+
+                }
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | Accessories
+                |--------------------------------------------------------------------------
+                */
+
+                elseif (in_array($itemCategory, $accessoriesCategories)) {
+
+                    $categoryAchieved['accessories'] += $qty;
+
+                }
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Calculate Category Targets
+            |--------------------------------------------------------------------------
+            */
+
+            $categoryTargets = [];
+
+            foreach ($categories as $category) {
+
+                $categoryTargets[$category] = AssignedTarget::where([
+                    'user_id' => $staff->id,
+                    'category' => $category
+                ])->sum('target');
+
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Cap Achieved Per Category
+            |--------------------------------------------------------------------------
+            */
+
+            foreach ($categories as $category) {
+
+                $categoryAchieved[$category] = min(
+                    $categoryAchieved[$category],
+                    $categoryTargets[$category]
+                );
+
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Total Achieved
+            |--------------------------------------------------------------------------
+            */
+
+            $achieved = array_sum($categoryAchieved);
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Final Safety Check
+            |--------------------------------------------------------------------------
+            */
+
+            $achieved = min($achieved, $target);
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Remaining
+            |--------------------------------------------------------------------------
+            */
+
+            $remaining = max(
+                $target - $achieved,
+                0
+            );
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Achievement Percentage
+            |--------------------------------------------------------------------------
+            */
+
+            $percentage = $target > 0
+                ? round(($achieved / $target) * 100)
+                : 0;
+
+            $percentage = min($percentage, 100);
+
 
             /*
             |--------------------------------------------------------------------------
@@ -665,21 +948,23 @@ public function staffComparison(Request $request)
             |--------------------------------------------------------------------------
             */
 
-            $saleAmount = SaleItem::where('salesperson_code',$staff->employee_id)
-                ->sum(DB::raw('price * quantity'));
+            $saleAmount = $saleItems->sum(function ($item) {
+
+                return max(0, $item->price * $item->quantity);
+
+            });
 
             $commission = round(
                 $saleAmount * ($commissionRate / 100),
                 2
             );
 
-            $percentage = $target > 0
-                ? round(($achieved / $target) * 100)
-                : 0;
 
-            if($percentage > 100){
-                $percentage = 100;
-            }
+            /*
+            |--------------------------------------------------------------------------
+            | Staff Data
+            |--------------------------------------------------------------------------
+            */
 
             $staffData[] = [
 
@@ -691,7 +976,7 @@ public function staffComparison(Request $request)
 
                 'achieved' => $achieved,
 
-                'remaining' => max($target - $achieved,0),
+                'remaining' => $remaining,
 
                 'achievement_percentage' => $percentage,
 
@@ -702,23 +987,29 @@ public function staffComparison(Request $request)
             ];
         }
 
+
         /*
         |--------------------------------------------------------------------------
         | Ranking
         |--------------------------------------------------------------------------
         */
 
-        usort($staffData,function($a,$b){
+        usort($staffData, function ($a, $b) {
 
-            return $b['achievement_percentage'] <=> $a['achievement_percentage'];
+            return $b['achievement_percentage']
+                <=> $a['achievement_percentage'];
 
         });
 
-        foreach($staffData as $index=>&$staff){
+
+        foreach ($staffData as $index => &$staff) {
 
             $staff['rank'] = $index + 1;
 
         }
+
+        unset($staff);
+
 
         $response[] = [
 
@@ -732,6 +1023,7 @@ public function staffComparison(Request $request)
 
         ];
     }
+
 
     return response()->json([
 
@@ -908,11 +1200,11 @@ public function staffDetails($staffId)
 
         $achieved = 0;
 
-        $saleItems = SaleItem::whereHas('sale', function ($q) use ($staff) {
-
-            $q->where('shop_name', $staff->branch->name);
-
-        })->get();
+       $saleItems = SaleItem::where('salesperson_code', $staff->employee_id)
+    ->whereHas('sale', function ($q) use ($staff) {
+        $q->where('shop_name', $staff->branch->name);
+    })
+    ->get();
 
         foreach ($saleItems as $item) {
 
@@ -978,12 +1270,18 @@ public function staffDetails($staffId)
             }
 
         }
+        
+        // Achieved should never be greater than target
+        $achieved = min($achieved, $target);
 
-        $remaining = max($target - $achieved,0);
+        $remaining = max($target - $achieved, 0);
 
         $percentage = $target > 0
-            ? round(($achieved/$target)*100)
+            ? round(($achieved / $target) * 100)
             : 0;
+
+        $percentage = min($percentage, 100);
+
 
         if($percentage > 100){
             $percentage = 100;

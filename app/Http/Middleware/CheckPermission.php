@@ -55,7 +55,7 @@ class CheckPermission
 
         // Check if the role has the permission for the given side menu
         $hasPermission = UserRolePermission::where('role_id', $role->id)
-            ->where('side_menue_id', $sidemenu->id) // ✅ Corrected column name
+            ->where('side_menu_id', $sidemenu->id) // ✅ Corrected column name
             ->where('permission_id', $permission->id)
             ->exists();
 
