@@ -82,7 +82,7 @@ class AuthRepository implements AuthRepositoryInterface
 
         return $vendor->load('images');
         }
-    }
+    } 
     public function login(array $request)
     {
         if ($request['type'] === 'staff') {
@@ -109,6 +109,12 @@ class AuthRepository implements AuthRepositoryInterface
         if (!Hash::check($request['password'], $user->password)) {
             return ['error' => 'Invalid credentials'];
         }
+
+        if (!empty($request['fcm_token'])) {
+            $user->fcm_token = $request['fcm_token'];
+            $user->save();
+        }
+
         $token = $user->createToken($request['type'] . '_token')->plainTextToken;
         return [
             'user' => $user,

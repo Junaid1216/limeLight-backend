@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\JobNotification;
-use App\Jobs\NotificationJob;
-use App\Models\AdminNotification;
+use App\Http\Requests\NotificationRequest;
+use App\Jobs\SendNotificationJob;
+use App\Models\AreaSaleManager;
+use App\Models\BranchManager;
 use App\Models\Notification;
+use App\Models\NotificationTarget;
+use App\Models\SaleStaff;
 use App\Models\SubAdmin;
-use App\Models\User;
 use App\Models\UserRolePermission;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -17,170 +19,182 @@ class NotificationController extends Controller
 {
     public function index()
     {
+        $notifications = Notification::with('targets.targetable')
+            ->where('sent_by', 'admin')
+            ->where('delete_by_admin', 0)
+            ->latest()
+            ->get();
 
-        $notifications = AdminNotification::latest()->get();
-
-        $users = User::all();
-
+        $staff = SaleStaff::select('id', 'name', 'email')->get();
+        $managers = BranchManager::select('id', 'name', 'email')->get();
+        $asms = AreaSaleManager::select('id', 'name', 'email')->get();
         $subadmin = SubAdmin::all();
 
         $sideMenuPermissions = collect();
 
-        // ✅ Check if user is not admin (normal subadmin)
-
-        if (! Auth::guard('admin')->check()) {
-
+        if (!Auth::guard('admin')->check()) {
             $user = Auth::guard('subadmin')->user()->load('roles');
-
-            // ✅ 1. Get role_id of subadmin
-
             $roleId = $user->role_id;
-
-            // ✅ 2. Get all permissions assigned to this role
-
             $permissions = UserRolePermission::with(['permission', 'sideMenue'])
-
                 ->where('role_id', $roleId)
-
                 ->get();
 
-            // ✅ 3. Group permissions by side menu
-
             $sideMenuPermissions = $permissions->groupBy('sideMenue.name')->map(function ($items) {
-
-                return $items->pluck('permission.name'); // ['view', 'create']
-
+                return $items->pluck('permission.name');
             });
-
         }
 
-        return view('admin.notification.index', compact('notifications', 'sideMenuPermissions', 'users', 'subadmin'));
-
+        return view('admin.notification.index', compact(
+            'notifications',
+            'sideMenuPermissions',
+            'staff',
+            'managers',
+            'asms',
+            'subadmin'
+        ));
     }
 
-    
-    public function store(Request $request)
+    public function store(NotificationRequest $request)
     {
-        // 1️⃣ Validation
-        $request->validate(
-            [
-                'user_type' => 'required',
-                'title' => 'required|string|max:255',
-                'description' => 'required|string',
-                'users' => 'required|array', // Ensure users array provided
-            ],
-            [
-                'user_type.required' => 'User Type is required',
-            ]
-        );
+        $users = [];
 
-        // 2️⃣ Create Admin Notification (if you need a record for admin)
-        AdminNotification::create([
+        if ($request->user_type === 'staff') {
+            $request->validate([
+                'users.*' => 'exists:sale_staffs,id',
+            ]);
+            $users = array_map(fn ($id) => ['id' => $id, 'type' => 'staff'], $request->users);
+        } elseif ($request->user_type === 'manager') {
+            $request->validate([
+                'users.*' => 'exists:branch_managers,id',
+            ]);
+            $users = array_map(fn ($id) => ['id' => $id, 'type' => 'manager'], $request->users);
+        } elseif ($request->user_type === 'asm') {
+            $request->validate([
+                'users.*' => 'exists:area_sale_managers,id',
+            ]);
+            $users = array_map(fn ($id) => ['id' => $id, 'type' => 'asm'], $request->users);
+        } elseif ($request->user_type === 'all') {
+            $staffIds = SaleStaff::whereIn('id', $request->users)->pluck('id')->toArray();
+            $managerIds = BranchManager::whereIn('id', $request->users)->pluck('id')->toArray();
+            $asmIds = AreaSaleManager::whereIn('id', $request->users)->pluck('id')->toArray();
+
+            if (empty($staffIds) && empty($managerIds) && empty($asmIds)) {
+                return back()->withErrors(['users' => 'No Valid Staff, Manager Or ASM IDs Provided']);
+            }
+
+            $users = array_merge(
+                array_map(fn ($id) => ['id' => $id, 'type' => 'staff'], $staffIds),
+                array_map(fn ($id) => ['id' => $id, 'type' => 'manager'], $managerIds),
+                array_map(fn ($id) => ['id' => $id, 'type' => 'asm'], $asmIds),
+            );
+        }
+
+        $notification = Notification::create([
+            'sent_by' => 'admin',
+            'user_type' => $request->user_type,
             'title' => $request->title,
             'description' => $request->description,
         ]);
 
-        // 3️⃣ Iterate through the arrays and create notifications for each user
-        foreach ($request->users as $userId) {
-            // 3.1 DB Notification for User
-            $notification = Notification::create([
-                'user_id' => $userId,
-                'title' => $request->title,
-                'description' => $request->description,
-                'seenByUser' => 0, // default unseen
-                'created_at' => now(),
+        foreach ($users as $user) {
+            if (!isset($user['id'], $user['type'])) {
+                continue;
+            }
+
+            $modelClass = $this->resolveModelClass($user['type']);
+            if (!$modelClass) {
+                continue;
+            }
+
+            $model = $modelClass::find($user['id']);
+            if (!$model) {
+                continue;
+            }
+
+            NotificationTarget::create([
+                'notification_id' => $notification->id,
+                'targetable_id' => $model->id,
+                'targetable_type' => $modelClass,
             ]);
-
-            // 3.2 Push Notification (if user has fcm_token)
-            // $customer = User::where('id', $userId)->first();
-            // dd($customer);
-
-            // if ($customer && $customer->fcm) {
-            //     // dd($customer->fcm);
-            //     $data = [
-            //         'id' => $notification->id,
-            //         'type' => 'admin_notification', // optional type field
-            //         'title' => $request->title,
-            //         'body' => $request->description,
-            //     ];
-
-            //     // dd($data);
-
-            //     // Dispatch the notification job
-            //     dispatch(new JobNotification(
-            //         $customer->fcm,
-            //         $request->title,
-            //         $request->description,
-            //         $data
-            //     ));
-            // }
         }
 
-        // 4️⃣ Redirect back with success after loop completes
-        return redirect()->route('notification.index')
-            ->with(['success' => 'Notifications Sent Successfully']);
+        SendNotificationJob::dispatch([
+            'sent_by' => 'admin',
+            'user_type' => $request->user_type,
+            'title' => $request->title,
+            'description' => $request->description,
+            'notification_id' => $notification->id,
+        ], $users);
+
+        return redirect()->route('notification.index')->with('success', 'Notification Sent Successfully');
     }
 
     public function destroy(Request $request, $id)
     {
-
-        $notification = AdminNotification::find($id);
-        $notification->delete();
+        $notification = Notification::find($id);
+        if ($notification) {
+            $notification->delete_by_admin = 1;
+            $notification->save();
+        }
 
         return redirect()->route('notification.index')->with(['success' => 'Notification Deleted Successfully']);
     }
 
     public function deleteAll()
     {
-
-        AdminNotification::truncate();  // or Notification::query()->delete(); if you want model events to trigger
+        Notification::where('sent_by', 'admin')
+            ->where('delete_by_admin', 0)
+            ->update(['delete_by_admin' => 1]);
 
         return redirect()->route('notification.index')->with(['success' => 'All Notifications Have Been Deleted']);
-
     }
 
     public function getUsersByType(Request $request)
     {
-
         $type = $request->type;
-
         $users = [];
 
         switch ($type) {
-
+            case 'staff':
+                $users = SaleStaff::select('id', 'name', 'email')->get();
+                break;
+            case 'manager':
+                $users = BranchManager::select('id', 'name', 'email')->get();
+                break;
+            case 'asm':
+                $users = AreaSaleManager::select('id', 'name', 'email')->get();
+                break;
             case 'subadmin':
-
                 $users = SubAdmin::select('id', 'name', 'email')->get();
-
                 break;
-
-            case 'web':
-
-                $users = User::select('id', 'name', 'email')->get();
-
-                break;
-
         }
 
         return response()->json($users);
-
     }
 
+    public function read($id)
+    {
+        $notification = Notification::findOrFail($id);
 
+        $notification->update([
+            'is_read' => 1,
+        ]);
 
-public function read($id)
-{
-    $notification = Notification::findOrFail($id);
+        if ($notification->type == 'monthly_target') {
+            return redirect()->route('admin.target.approvals');
+        }
 
-    $notification->update([
-        'is_read' => 1
-    ]);
-
-    // Redirect according to notification type
-    if($notification->type == 'monthly_target'){
-        return redirect()->route('admin.target.approvals');
+        return back();
     }
 
-    return back();
-}
+    private function resolveModelClass(string $type): ?string
+    {
+        $map = [
+            'staff' => SaleStaff::class,
+            'manager' => BranchManager::class,
+            'asm' => AreaSaleManager::class,
+        ];
+
+        return $map[$type] ?? null;
+    }
 }

@@ -8,10 +8,10 @@ use Illuminate\Support\Facades\Log;
 class NotificationHelper
 {
     private static function getGoogleAccessToken()
-    {
+    { 
         try {
             $client = new Client();
-            $client->setAuthConfig(storage_path('app/daud-transport-firebase-adminsdk-mhl0q-18343637cd.json'));
+            $client->setAuthConfig(storage_path('app/firstphone-a546c-firebase-adminsdk-fbsvc-00e0890894.json'));
             $client->addScope('https://www.googleapis.com/auth/cloud-platform');
             $accessToken = $client->fetchAccessTokenWithAssertion();
             Log::info('Access Token Retrieved Successfully.');
@@ -31,13 +31,13 @@ class NotificationHelper
                     'token' => $fcmToken,
                     'notification' => [
                         'title' => $title,
-                        'description' => $description,
+                        'body' => $description,
                     ],
                     'data' => array_map('strval', $data),
                 ],
             ];
  
-            $url = 'https://fcm.googleapis.com/v1/projects/daud-transport/messages:send';
+            $url = 'https://fcm.googleapis.com/v1/projects/firstphone-a546c/messages:send';
             $headers = [
                 'Authorization: Bearer ' . $accessToken,
                 'Content-Type: application/json',

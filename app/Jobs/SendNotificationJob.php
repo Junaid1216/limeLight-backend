@@ -2,56 +2,80 @@
 
 namespace App\Jobs;
 
-use App\Models\Notification;
-use App\Models\Farmer;
-use App\Models\AuthorizedDealer;
+use App\Helpers\NotificationHelper;
+use App\Models\AreaSaleManager;
+use App\Models\BranchManager;
+use App\Models\SaleStaff;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 
 class SendNotificationJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $notification;
-    /**
-     * Create a new job instance.
-     *
-     * @return void
-     */
-    public function __construct(Notification $notification)
+    protected array $data;
+    protected array $userIds;
+
+    public function __construct(array $data, array $userIds)
     {
-        $this->notification = $notification;
+        $this->data = $data;
+        $this->userIds = $userIds;
     }
 
-    /**
-     * Execute the job.
-     *
-     * @return void
-     */
-    public function handle()
+    public function handle(): void
     {
-        $notification = $this->notification;
+        Log::info('SendNotificationJob started', $this->data);
 
-        // Get recipients based on recipient type
-        if ($notification->recipient_type === 'all') {
-            $farmers = Farmer::all();
-            $dealers = AuthorizedDealer::all();
-            $recipients = $farmers->merge($dealers);
-        } elseif ($notification->recipient_type === 'farmers') {
-            $recipients = Farmer::all();
-        } elseif ($notification->recipient_type === 'authorized_dealers') {
-            $recipients = AuthorizedDealer::all();
+        foreach ($this->userIds as $user) {
+            if (!isset($user['id'], $user['type'])) {
+                continue;
+            }
+
+            $modelClass = $this->resolveModelClass($user['type']);
+            if (!$modelClass) {
+                continue;
+            }
+
+            $model = $modelClass::find($user['id']);
+            if (!$model) {
+                continue;
+            }
+
+            $fcmToken = $model->fcm_token ?? $model->fcm ?? null;
+            if (empty($fcmToken)) {
+                continue;
+            }
+
+            try {
+                NotificationHelper::sendFcmNotification(
+                    $fcmToken,
+                    $this->data['title'],
+                    $this->data['description'],
+                    [
+                        'user_type' => (string) ($this->data['user_type'] ?? ''),
+                        'notification_id' => (string) ($this->data['notification_id'] ?? ''),
+                    ]
+                );
+            } catch (\Exception $e) {
+                Log::error('SendNotificationJob FCM error: ' . $e->getMessage(), [
+                    'user_id' => $user['id'],
+                    'type' => $user['type'],
+                ]);
+            }
         }
+    }
 
-        foreach ($recipients as $recipient) {
-            // Example logic for sending email or SMS
-            // Mail::to($recipient->email)->send(new NotificationMail($notification->message));
-        }
-
-        // Mark the notification as sent
-        $notification->update(['is_sent' => true]);
+    private function resolveModelClass(string $type): ?string
+    {
+        return match ($type) {
+            'staff' => SaleStaff::class,
+            'manager' => BranchManager::class,
+            'asm' => AreaSaleManager::class,
+            default => null,
+        };
     }
 }

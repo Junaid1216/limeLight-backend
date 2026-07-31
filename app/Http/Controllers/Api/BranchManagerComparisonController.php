@@ -15,279 +15,143 @@ use Illuminate\Support\Facades\Auth;
 
 class BranchManagerComparisonController extends Controller
 {
-    public function staffComparison()
-{
-    $user = Auth::user();
+    public function staffComparison(Request $request)
+    {
+        $user = Auth::user();
 
-    $branch = $user->branch;
-
-    if (!$branch) {
-        return response()->json([
-            'status' => 404,
-            'message' => 'Branch not found'
-        ], 404);
-    }
-
-    $commissionRate = Commission::where('role', 'sales_staff')
-        ->value('commission') ?? 0;
-
-    $staffs = SaleStaff::where('branch_id', $branch->id)->get();
-
-    /*
-    |--------------------------------------------------------------------------
-    | Category Mappings
-    |--------------------------------------------------------------------------
-    */
-
-    $categoryMappings = [
-
-        'garments' => [
-            'signature',
-            'flowy',
-            'trouser',
-            'regular prints',
-            'fusion co-ords',
-            'festive',
-            'composed rotary',
-            'premium',
-            'casual',
-            'glam',
-            'dailywear',
-            'regular running',
-            'regular panel',
-            'modish',
-            'trendy',
-            'premium wear',
-            'tops'
-        ],
-
-        'unstitched' => [
-            'dupatta - dyed',
-            'unstitched trousers'
-        ],
-
-        'accessories' => [
-            'hand bag',
-            'scarves - printed',
-            'sunglasses',
-            'jewellery',
-            'clutches',
-            'perfumes',
-            'body mist',
-            'non-tradable'
-        ]
-
-    ];
-
-    $response = [];
-
-    foreach ($staffs as $staff) {
-
-        /*
-        |--------------------------------------------------------------------------
-        | Targets By Category
-        |--------------------------------------------------------------------------
-        */
-
-        $targets = AssignedTarget::where('user_id', $staff->id)
-            ->get();
-
-        $assigned = [
-            'garments' => 0,
-            'unstitched' => 0,
-            'accessories' => 0
-        ];
-
-        foreach ($targets as $target) {
-
-            $category = strtolower(trim($target->category));
-
-            if (isset($assigned[$category])) {
-
-                $assigned[$category] += $target->target;
-
-            }
-
+        if (!$user) {
+            return response()->json([
+                'status' => 401,
+                'message' => 'Unauthenticated'
+            ], 401);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Achieved By Category
-        |--------------------------------------------------------------------------
-        */
+        $branch = $user->branch;
 
-        $achieved = [
-            'garments' => 0,
-            'unstitched' => 0,
-            'accessories' => 0
-        ];
+        if (!$branch) {
+            return response()->json([
+                'status' => 404,
+                'message' => 'Branch not found'
+            ], 404);
+        }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Get Staff Sales
-        |--------------------------------------------------------------------------
-        |
-        | Same employee + same branch logic as staffDetails()
-        |
-        */
+        $type = strtolower($request->type ?? 'monthly');
+        [$from, $to, $type] = $this->resolvePeriod($type);
 
-        $saleItems = SaleItem::where(
-            'salesperson_code',
-            $staff->employee_id
-        )
-        ->whereHas('sale', function ($q) use ($branch) {
+        $now = Carbon::now();
+        $month = $now->format('F');
+        $year = (string) $now->year;
 
-            $q->where('shop_name', $branch->name);
+        $commissionRate = (float) (Commission::where('role', 'sales_staff')
+            ->value('commission') ?? 0);
 
-        })
-        ->get();
+        $categoryMappings = $this->categoryMappings();
+        $staffs = SaleStaff::where('branch_id', $branch->id)->get();
+        $response = [];
 
-        foreach ($saleItems as $item) {
+        foreach ($staffs as $staff) {
+            $assignedTargets = [
+                'garments' => 0,
+                'unstitched' => 0,
+                'accessories' => 0,
+            ];
 
-            $qty = max(0, (int) $item->quantity);
+            $targets = $this->getStaffMonthTargets($staff->id, $month, $year);
+            $hasApprovedAssignment = $this->hasApprovedAssignment($staff->id, $month, $year);
 
-            $itemCategory = strtolower(trim($item->category));
+            foreach ($targets as $target) {
+                $category = strtolower(trim((string) $target->category));
 
-            foreach ($categoryMappings as $category => $mapping) {
-
-                if (in_array($itemCategory, $mapping)) {
-
-                    $achieved[$category] += $qty;
-
-                    break;
-
+                if (array_key_exists($category, $assignedTargets)) {
+                    $assignedTargets[$category] += max(0, (float) $target->target);
                 }
-
             }
 
+            $achieved = [
+                'garments' => 0,
+                'unstitched' => 0,
+                'accessories' => 0,
+            ];
+
+            $saleItems = SaleItem::where('salesperson_code', (string) $staff->employee_id)
+                ->whereHas('sale', function ($q) use ($branch, $from, $to) {
+                    $q->where('shop_name', $branch->name)
+                        ->whereBetween('date', [
+                            $from->toDateString(),
+                            $to->toDateString(),
+                        ]);
+                })
+                ->get(['category', 'quantity', 'price']);
+
+            $saleAmount = 0;
+
+            foreach ($saleItems as $item) {
+                $qty = max(0, (float) $item->quantity);
+                $itemCategory = strtolower(trim((string) $item->category));
+
+                foreach ($categoryMappings as $category => $mapping) {
+                    if (in_array($itemCategory, $mapping, true)) {
+                        $achieved[$category] += $qty;
+
+                        if ($assignedTargets[$category] > 0) {
+                            $saleAmount += $qty * max(0, (float) $item->price);
+                        }
+                        break;
+                    }
+                }
+            }
+
+            foreach ($achieved as $category => $value) {
+                $achieved[$category] = min($value, $assignedTargets[$category]);
+            }
+
+            $totalTarget = array_sum($assignedTargets);
+            $totalAchieved = array_sum($achieved);
+            $remaining = max($totalTarget - $totalAchieved, 0);
+
+            $percentage = $totalTarget > 0
+                ? min(100, (int) round(($totalAchieved / $totalTarget) * 100))
+                : 0;
+
+            $remainingPercentage = $totalTarget > 0 ? (100 - $percentage) : 0;
+
+            $commission = $totalTarget > 0
+                ? round($saleAmount * ($commissionRate / 100), 2)
+                : 0;
+
+            $response[] = [
+                'staff_id' => $staff->id,
+                'staff_name' => $staff->name,
+                'assigned' => $hasApprovedAssignment,
+                'target' => $totalTarget,
+                'achieved' => $totalAchieved,
+                'remaining' => $remaining,
+                'achieved_percentage' => $percentage,
+                'remaining_percentage' => $remainingPercentage,
+                'commission' => $commission,
+            ];
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Cap Achieved By Category
-        |--------------------------------------------------------------------------
-        */
+        usort($response, function ($a, $b) {
+            return $b['achieved_percentage'] <=> $a['achieved_percentage'];
+        });
 
-        foreach ($achieved as $category => $value) {
-
-            $achieved[$category] = min(
-                $value,
-                $assigned[$category]
-            );
-
+        foreach ($response as $index => &$row) {
+            $row['rank'] = $index + 1;
         }
+        unset($row);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Total Target & Achieved
-        |--------------------------------------------------------------------------
-        */
-
-        $totalTarget = array_sum($assigned);
-
-        $totalAchieved = array_sum($achieved);
-
-        $remaining = max(
-            $totalTarget - $totalAchieved,
-            0
-        );
-
-        /*
-        |--------------------------------------------------------------------------
-        | Achievement Percentage
-        |--------------------------------------------------------------------------
-        */
-
-        $percentage = $totalTarget > 0
-            ? round(($totalAchieved / $totalTarget) * 100)
-            : 0;
-
-        $percentage = min($percentage, 100);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Commission
-        |--------------------------------------------------------------------------
-        */
-
-        $saleAmount = SaleItem::where(
-            'salesperson_code',
-            $staff->employee_id
-        )
-        ->whereHas('sale', function ($q) use ($branch) {
-
-            $q->where('shop_name', $branch->name);
-
-        })
-        ->selectRaw('SUM(quantity * price) as total')
-        ->value('total') ?? 0;
-
-        $commission = round(
-            $saleAmount * ($commissionRate / 100),
-            2
-        );
-
-        /*
-        |--------------------------------------------------------------------------
-        | Response
-        |--------------------------------------------------------------------------
-        */
-
-        $response[] = [
-
-            'staff_id' => $staff->id,
-
-            'staff_name' => $staff->name,
-
-            'target' => $totalTarget,
-
-            'achieved' => $totalAchieved,
-
-            'remaining' => $remaining,
-
-            'achieved_percentage' => $percentage,
-
-            'remaining_percentage' => 100 - $percentage,
-
-            'commission' => $commission
-
-        ];
-
+        return response()->json([
+            'status' => 200,
+            'message' => 'Staff comparison',
+            'type' => $type,
+            'from' => $from->toDateString(),
+            'to' => $to->toDateString(),
+            'data' => $response,
+        ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Ranking
-    |--------------------------------------------------------------------------
-    */
-
-    usort($response, function ($a, $b) {
-
-        return $b['achieved_percentage']
-            <=> $a['achieved_percentage'];
-
-    });
-
-    foreach ($response as $index => &$row) {
-
-        $row['rank'] = $index + 1;
-
-    }
-
-    unset($row);
-
-    return response()->json([
-
-        'status' => 200,
-
-        'message' => 'Staff comparison',
-
-        'data' => $response
-
-    ]);
-}
-
-public function branchComparison()
+public function branchComparison(Request $request)
 {
     $user = Auth::user();
 
@@ -307,10 +171,15 @@ public function branchComparison()
         ], 404);
     }
 
+    $type = strtolower($request->type ?? 'monthly');
+    [$from, $to, $type] = $this->resolvePeriod($type);
+
     $regionId = $branch->region_id;
 
     $month = Carbon::now()->format('F');
     $year = Carbon::now()->year;
+    $weekNumber = $this->currentWeekOfMonth();
+    $weekColumn = 'week_' . $weekNumber;
 
     $categories = [
         'garments',
@@ -318,6 +187,7 @@ public function branchComparison()
         'accessories'
     ];
 
+    $categoryMappings = $this->categoryMappings();
     $branches = Branch::where('region_id', $regionId)->get();
 
     $response = [];
@@ -328,410 +198,354 @@ public function branchComparison()
 
         foreach ($branches as $branchItem) {
 
-            /*
-            |--------------------------------------------------------------------------
-            | Monthly Target
-            |--------------------------------------------------------------------------
-            */
-
-            $target = Target::where('branch_id', $branchItem->id)
+            $targetRecord = Target::where('branch_id', $branchItem->id)
                 ->where('category', $category)
                 ->where('month', $month)
                 ->where('year', $year)
-                ->value('monthly_target') ?? 0;
+                ->first();
 
-            /*
-            |--------------------------------------------------------------------------
-            | Achieved
-            |--------------------------------------------------------------------------
-            */
+            if ($type === 'weekly') {
+                $target = $targetRecord ? (float) ($targetRecord->{$weekColumn} ?? 0) : 0;
+            } else {
+                $target = $targetRecord ? (float) ($targetRecord->monthly_target ?? 0) : 0;
+            }
 
             $achieved = 0;
 
-            $saleItems = SaleItem::whereHas('sale', function ($q) use ($branchItem) {
-                $q->where('shop_name', $branchItem->name);
-            })->get();
+            $saleItems = SaleItem::whereHas('sale', function ($q) use ($branchItem, $from, $to) {
+                $q->where('shop_name', $branchItem->name)
+                    ->whereBetween('date', [
+                        $from->toDateString(),
+                        $to->toDateString(),
+                    ]);
+            })->get(['category', 'quantity']);
+
+            $mapping = $categoryMappings[$category] ?? [];
 
             foreach ($saleItems as $item) {
+                $itemCategory = strtolower(trim((string) $item->category));
+                $qty = max(0, (float) $item->quantity);
 
-                $itemCategory = strtolower(trim($item->category));
-
-                $qty = max(0, $item->quantity);
-
-                /*
-                |--------------------------------------------------------------------------
-                | Garments
-                |--------------------------------------------------------------------------
-                */
-
-                if (
-                    $category == 'garments' &&
-                    in_array($itemCategory, [
-                        'signature',
-                        'flowy',
-                        'trouser',
-                        'regular prints',
-                        'fusion co-ords',
-                        'festive',
-                        'composed rotary',
-                        'premium',
-                        'casual',
-                        'glam',
-                        'dailywear',
-                        'regular running',
-                        'regular panel',
-                        'modish',
-                        'trendy',
-                        'premium wear',
-                        'tops'
-                    ])
-                ) {
-
+                if (in_array($itemCategory, $mapping, true)) {
                     $achieved += $qty;
-
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | Unstitched
-                |--------------------------------------------------------------------------
-                */
-
-                elseif (
-                    $category == 'unstitched' &&
-                    in_array($itemCategory, [
-                        'dupatta - dyed',
-                        'unstitched trousers'
-                    ])
-                ) {
-
-                    $achieved += $qty;
-
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | Accessories
-                |--------------------------------------------------------------------------
-                */
-
-                elseif (
-                    $category == 'accessories' &&
-                    in_array($itemCategory, [
-                        'hand bag',
-                        'scarves - printed',
-                        'sunglasses',
-                        'jewellery',
-                        'clutches',
-                        'perfumes',
-                        'body mist',
-                        'non-tradable'
-                    ])
-                ) {
-
-                    $achieved += $qty;
-
                 }
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Achievement %
-            |--------------------------------------------------------------------------
-            */
+            $achieved = $target > 0 ? min($achieved, $target) : 0;
 
             $achievement = $target > 0
-                ? round(($achieved / $target) * 100)
+                ? min(100, (int) round(($achieved / $target) * 100))
                 : 0;
 
-            if ($achievement > 100) {
-                $achievement = 100;
-            }
-
             $rows[] = [
-
                 'branch_id' => $branchItem->id,
-
                 'branch' => $branchItem->name,
-
+                'target' => $target,
+                'achieved' => $achieved,
                 'achievement' => $achievement,
-
-                'remaining' => 100 - $achievement
-
+                'remaining' => 100 - $achievement,
             ];
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Ranking
-        |--------------------------------------------------------------------------
-        */
-
         usort($rows, function ($a, $b) {
-
             return $b['achievement'] <=> $a['achievement'];
-
         });
 
         foreach ($rows as $index => &$row) {
-
             $row['rank'] = $index + 1;
-
         }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Current Branch
-        |--------------------------------------------------------------------------
-        */
+        unset($row);
 
         $yourBranch = collect($rows)->firstWhere('branch_id', $branch->id);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Other Branches
-        |--------------------------------------------------------------------------
-        */
 
         $otherBranches = collect($rows)
             ->where('branch_id', '!=', $branch->id)
             ->values();
 
         $response[] = [
-
             'category' => ucfirst($category),
-
             'your_branch' => $yourBranch,
-
-            'branches' => $otherBranches
-
+            'branches' => $otherBranches,
         ];
     }
 
     return response()->json([
-
         'status' => 200,
-
         'message' => 'Branch Comparison',
-
-        'data' => $response
-
+        'type' => $type,
+        'from' => $from->toDateString(),
+        'to' => $to->toDateString(),
+        'week' => $type === 'weekly' ? $weekNumber : null,
+        'data' => $response,
     ]);
 }
 
-public function staffDetails($id)
-{
-    $branchManager = Auth::user();
+    public function staffDetails($id)
+    {
+        $branchManager = Auth::user();
 
-    $branch = $branchManager->branch;
-
-    if (!$branch) {
-        return response()->json([
-            'status' => 404,
-            'message' => 'Branch not found'
-        ], 404);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Staff
-    |--------------------------------------------------------------------------
-    */
-
-    $staff = SaleStaff::where('id', $id)
-        ->where('branch_id', $branch->id)
-        ->first();
-
-    if (!$staff) {
-        return response()->json([
-            'status' => 404,
-            'message' => 'Staff not found'
-        ], 404);
-    }
-
-    $month = Carbon::now()->format('F');
-    $year = Carbon::now()->year;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Targets
-    |--------------------------------------------------------------------------
-    */
-
-    $targets = AssignedTarget::where('user_id', $staff->id)->get();
-
-    $assigned = [
-        'garments' => 0,
-        'unstitched' => 0,
-        'accessories' => 0
-    ];
-
-    foreach ($targets as $target) {
-
-        $assigned[strtolower($target->category)] = $target->target;
-
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Achieved
-    |--------------------------------------------------------------------------
-    */
-
-    $achieved = [
-        'garments' => 0,
-        'unstitched' => 0,
-        'accessories' => 0
-    ];
-
-    $saleItems = SaleItem::where('salesperson_code', $staff->employee_id)->get();
-
-    foreach ($saleItems as $item) {
-
-        $qty = max(0, $item->quantity);
-
-        $category = strtolower(trim($item->category));
-
-        // Garments
-        if (in_array($category, [
-            'signature',
-            'flowy',
-            'trouser',
-            'regular prints',
-            'fusion co-ords',
-            'festive',
-            'composed rotary',
-            'premium',
-            'casual',
-            'glam',
-            'dailywear',
-            'regular running',
-            'regular panel',
-            'modish',
-            'trendy',
-            'premium wear',
-            'tops'
-        ])) {
-
-            $achieved['garments'] += $qty;
-
+        if (!$branchManager) {
+            return response()->json([
+                'status' => 401,
+                'message' => 'Unauthenticated'
+            ], 401);
         }
 
-        // Unstitched
-        elseif (in_array($category, [
-            'dupatta - dyed',
-            'unstitched trousers'
-        ])) {
+        $branch = $branchManager->branch;
 
-            $achieved['unstitched'] += $qty;
-
+        if (!$branch) {
+            return response()->json([
+                'status' => 404,
+                'message' => 'Branch not found'
+            ], 404);
         }
 
-        // Accessories
-        elseif (in_array($category, [
-            'hand bag',
-            'scarves - printed',
-            'sunglasses',
-            'jewellery',
-            'clutches',
-            'perfumes',
-            'body mist',
-            'non-tradable'
-        ])) {
+        $staff = SaleStaff::with('designation')
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->first();
 
-            $achieved['accessories'] += $qty;
-
+        if (!$staff) {
+            return response()->json([
+                'status' => 404,
+                'message' => 'Staff not found'
+            ], 404);
         }
 
-    }
+        if (empty($staff->employee_id)) {
+            return response()->json([
+                'status' => 422,
+                'message' => 'Staff employee ID is missing'
+            ], 422);
+        }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Summary
-    |--------------------------------------------------------------------------
-    */
+        $now = Carbon::now();
+        $month = $now->format('F');
+        $year = (string) $now->year;
+        $monthNum = $now->month;
 
-    $totalTarget = array_sum($assigned);
+        $categoryMappings = $this->categoryMappings();
 
-    $totalAchieved = array_sum($achieved);
+        $assigned = [
+            'garments' => 0,
+            'unstitched' => 0,
+            'accessories' => 0,
+        ];
 
-    $remaining = max(0, $totalTarget - $totalAchieved);
+        $targets = $this->getStaffMonthTargets($staff->id, $month, $year);
 
-    /*
-    |--------------------------------------------------------------------------
-    | Category Performance
-    |--------------------------------------------------------------------------
-    */
+        foreach ($targets as $target) {
+            $category = strtolower(trim((string) $target->category));
 
-    $performance = [];
+            if (array_key_exists($category, $assigned)) {
+                $assigned[$category] = max(0, (float) $target->target);
+            }
+        }
 
-    foreach ($assigned as $category => $target) {
+        $achieved = [
+            'garments' => 0,
+            'unstitched' => 0,
+            'accessories' => 0,
+        ];
 
-        /*
-        |--------------------------------------------------------------------------
-        | Achieved Cannot Be Greater Than Target
-        |--------------------------------------------------------------------------
-        */
+        $saleItems = SaleItem::where('salesperson_code', (string) $staff->employee_id)
+            ->whereHas('sale', function ($q) use ($branch, $monthNum, $year) {
+                $q->where('shop_name', $branch->name)
+                    ->whereMonth('date', $monthNum)
+                    ->whereYear('date', $year);
+            })
+            ->get(['category', 'quantity']);
 
-        $done = min(
-            $achieved[$category],
-            $target
-        );
+        foreach ($saleItems as $item) {
+            $itemCategory = strtolower(trim((string) $item->category));
+            $qty = max(0, (float) $item->quantity);
 
-        $percentage = $target > 0
-            ? round(($done / $target) * 100)
+            foreach ($categoryMappings as $category => $mapping) {
+                if (in_array($itemCategory, $mapping, true)) {
+                    $achieved[$category] += $qty;
+                    break;
+                }
+            }
+        }
+
+        $performance = [];
+        $totalTarget = 0;
+        $totalAchieved = 0;
+
+        foreach ($assigned as $category => $target) {
+            $sold = $achieved[$category];
+            $done = min($sold, $target);
+
+            $percentage = $target > 0
+                ? min(100, (int) round(($done / $target) * 100))
+                : 0;
+
+            $totalTarget += $target;
+            $totalAchieved += $done;
+
+            $performance[] = [
+                'category' => ucfirst($category),
+                'target' => $target,
+                'achieved' => $done,
+                'remaining' => max(0, $target - $done),
+                'percentage' => $percentage,
+            ];
+        }
+
+        $remaining = max(0, $totalTarget - $totalAchieved);
+        $achievedPercentage = $totalTarget > 0
+            ? min(100, (int) round(($totalAchieved / $totalTarget) * 100))
             : 0;
 
-        if ($percentage > 100) {
-            $percentage = 100;
-        }
-
-        $performance[] = [
-
-            'category' => ucfirst($category),
-
-            'target' => $target,
-
-            'achieved' => $done,
-
-            'remaining' => max(0, $target - $done),
-
-            'percentage' => $percentage
-
-        ];
-
+        return response()->json([
+            'status' => 200,
+            'message' => 'Staff details',
+            'data' => [
+                'staff_id' => $staff->id,
+                'staff_name' => $staff->name,
+                'designation' => optional($staff->designation)->name,
+                'branch' => $branch->name,
+                'month' => $month,
+                'year' => $year,
+                'target' => $totalTarget,
+                'achieved' => $totalAchieved,
+                'remaining' => $remaining,
+                'achieved_percentage' => $achievedPercentage,
+                'remaining_percentage' => 100 - $achievedPercentage,
+                'category_performance' => $performance,
+            ]
+        ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Response
-    |--------------------------------------------------------------------------
-    */
+    private function categoryMappings(): array
+    {
+        return [
+            'garments' => [
+                'signature',
+                'flowy',
+                'trouser',
+                'regular prints',
+                'fusion co-ords',
+                'festive',
+                'composed rotary',
+                'premium',
+                'casual',
+                'glam',
+                'dailywear',
+                'regular running',
+                'regular panel',
+                'modish',
+                'trendy',
+                'premium wear',
+                'tops',
+            ],
+            'unstitched' => [
+                'dupatta - dyed',
+                'unstitched trousers',
+            ],
+            'accessories' => [
+                'hand bag',
+                'scarves - printed',
+                'sunglasses',
+                'jewellery',
+                'clutches',
+                'perfumes',
+                'body mist',
+                'non-tradable',
+            ],
+        ];
+    }
 
-    return response()->json([
+    private function resolvePeriod(string $type): array
+    {
+        if ($type === 'weekly') {
+            return [
+                Carbon::now()->startOfWeek(),
+                Carbon::now()->endOfWeek(),
+                'weekly',
+            ];
+        }
 
-        'status' => 200,
+        return [
+            Carbon::now()->startOfMonth(),
+            Carbon::now()->endOfMonth(),
+            'monthly',
+        ];
+    }
 
-        'message' => 'Staff details',
+    private function currentWeekOfMonth(): int
+    {
+        $now = Carbon::now();
+        $monthStart = $now->copy()->startOfMonth();
+        $monthEnd = $now->copy()->endOfMonth();
 
-        'data' => [
+        for ($i = 1; $i <= 4; $i++) {
+            $start = $monthStart->copy()->addDays(($i - 1) * 7)->startOfDay();
+            $end = $start->copy()->addDays(6)->endOfDay();
 
-            'staff_name' => $staff->name,
+            if ($i === 4 || $end->gt($monthEnd)) {
+                $end = $monthEnd->copy()->endOfDay();
+            }
 
-            'designation' => optional($staff->designation)->name,
+            if ($now->between($start, $end)) {
+                return $i;
+            }
+        }
 
-            'branch' => $branch->name,
+        return min(4, (int) ceil($now->day / 7));
+    }
 
-            'target' => $totalTarget,
+    private function hasApprovedAssignment($staffId, string $month, string $year): bool
+    {
+        $monthVariants = array_values(array_unique([
+            $month,
+            strtolower($month),
+            ucfirst(strtolower($month)),
+            Carbon::now()->format('m'),
+            (string) Carbon::now()->month,
+        ]));
 
-            'achieved' => $totalAchieved,
+        $yearVariants = array_values(array_unique([
+            $year,
+            (int) $year,
+        ]));
 
-            'remaining' => $remaining,
+        return AssignedTarget::where('user_id', $staffId)
+            ->whereIn('month', $monthVariants)
+            ->whereIn('year', $yearVariants)
+            ->where('status', 'approved')
+            ->where('target', '>', 0)
+            ->exists();
+    }
 
-            'category_performance' => $performance
+    private function getStaffMonthTargets($staffId, string $month, string $year)
+    {
+        $monthVariants = array_values(array_unique([
+            $month,
+            strtolower($month),
+            ucfirst(strtolower($month)),
+            Carbon::now()->format('m'),
+            (string) Carbon::now()->month,
+        ]));
 
-        ]
+        $yearVariants = array_values(array_unique([
+            $year,
+            (int) $year,
+        ]));
 
-    ]);
-}
+        $approved = AssignedTarget::where('user_id', $staffId)
+            ->whereIn('month', $monthVariants)
+            ->whereIn('year', $yearVariants)
+            ->where('status', 'approved')
+            ->get();
+
+        if ($approved->isNotEmpty()) {
+            return $approved;
+        }
+
+        return AssignedTarget::where('user_id', $staffId)
+            ->whereIn('month', $monthVariants)
+            ->whereIn('year', $yearVariants)
+            ->get();
+    }
 }

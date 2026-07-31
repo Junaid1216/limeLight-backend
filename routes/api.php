@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\SeoController;
 use App\Http\Controllers\Api\AnnouncementController;
+use App\Http\Controllers\Api\AppScreenController;
 use App\Http\Controllers\Api\AsmComparisonController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BranchManagerComparisonController;
@@ -101,7 +102,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //branch manager my performance
     Route::get('/branch-manager-dashboard', [BranchManagerDashboardController::class, 'branchDashboard']);
-
+ 
     //branch manager category performance
     Route::get('/branch-manager-category-performance', [BranchManagerDashboardController::class, 'categoryPerformance']);
 
@@ -141,6 +142,12 @@ Route::middleware('auth:sanctum')->group(function () {
     //Notifications
     Route::get('/notifications', [NotificationController::class, 'getUserNotifications']);
 
+    // App screens — notifications by role, profile update, sales staff comparison/conversion
+    Route::get('/app/notifications', [AppScreenController::class, 'getNotifications']);
+    Route::post('/update-profile', [AppScreenController::class, 'updateProfile']);
+    Route::get('/app/sales-staff-comparison', [AppScreenController::class, 'salesStaffComparison']);
+    Route::get('/app/sales-staff-conversion-rate', [AppScreenController::class, 'salesStaffConversionRate']);
+
     Route::get('/sales-staff-comparison',[DashboardController::class,'staffComparison']);
 
     Route::get('/product-training',[TrainingVideoController::class, 'trainingProduct']);
@@ -163,7 +170,7 @@ Route::post('/register-user', [EmailOtpController::class, 'registerUser']);
 Route::post('/submit-contact-us', [ContactUsController::class, 'Submitcontact'])->name('contact.send');
 
 
-  Route::post('/update-profile', [EmailOtpController::class, 'requestUpdateOtp']);
+//   Route::post('/update-profile', [EmailOtpController::class, 'requestUpdateOtp']);
     Route::post('/update-profile-verify', [EmailOtpController::class, 'verifyAndUpdateContact']);
     Route::get('/get-logged-in-user-info', [EmailOtpController::class, 'getLoggedInUserInfo']);
 });

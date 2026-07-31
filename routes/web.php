@@ -224,6 +224,7 @@ Route::delete('/commission-delete/{id}', [CommissionController::class, 'delete']
 // ############ Slip Bound Incentives ################
 Route::get('/slab', [SlabController::class, 'index'])->name('slab.index')->middleware('check.permission:Slip Bound Incentives,view');
 Route::post('/slab-store', [SlabController::class, 'store'])->name('slip.incentive.store')->middleware('check.permission:Slip Bound Incentives,edit');
+Route::post('/slab-delete/{id}', [SlabController::class, 'delete'])->name('slip.incentive.delete')->middleware('check.permission:Slip Bound Incentives,edit');
 
 // ############ Training Video #################
 Route::get('/training_module',[TrainingVideoController::class, 'index'])->name('training.video.index')->middleware('check.permission:Training Modules,view');

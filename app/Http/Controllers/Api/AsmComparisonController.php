@@ -152,7 +152,7 @@ class AsmComparisonController extends Controller
     ]);
 }
 
-public function branchComparison()
+public function branchComparison(Request $request)
 {
     $asm = Auth::user();
 
@@ -163,8 +163,13 @@ public function branchComparison()
         ], 401);
     }
 
+    $type = strtolower($request->type ?? 'monthly');
+    [$from, $to, $type] = $this->resolvePeriod($type);
+
     $month = Carbon::now()->format('F');
     $year = Carbon::now()->year;
+    $weekNumber = $this->currentWeekOfMonth();
+    $weekColumn = 'week_' . $weekNumber;
 
     $categories = [
         'garments',
@@ -172,8 +177,8 @@ public function branchComparison()
         'accessories'
     ];
 
+    $categoryMappings = $this->categoryMappings();
     $response = [];
-
     $branches = Branch::where('region_id', $asm->region_id)->get();
 
     foreach ($categories as $category) {
@@ -182,137 +187,78 @@ public function branchComparison()
 
         foreach ($branches as $branch) {
 
-            $target = Target::where('branch_id', $branch->id)
+            $targetRecord = Target::where('branch_id', $branch->id)
                 ->where('month', $month)
                 ->where('year', $year)
                 ->where('category', $category)
-                ->value('monthly_target') ?? 0;
+                ->first();
+
+            if ($type === 'weekly') {
+                $target = $targetRecord ? (float) ($targetRecord->{$weekColumn} ?? 0) : 0;
+            } else {
+                $target = $targetRecord ? (float) ($targetRecord->monthly_target ?? 0) : 0;
+            }
 
             $achieved = 0;
 
-            $items = SaleItem::whereHas('sale', function ($q) use ($branch) {
+            $items = SaleItem::whereHas('sale', function ($q) use ($branch, $from, $to) {
+                $q->where('shop_name', $branch->name)
+                    ->whereBetween('date', [
+                        $from->toDateString(),
+                        $to->toDateString(),
+                    ]);
+            })->get(['category', 'quantity']);
 
-                $q->where('shop_name', $branch->name);
-
-            })->get();
+            $mapping = $categoryMappings[$category] ?? [];
 
             foreach ($items as $item) {
+                $qty = max(0, (float) $item->quantity);
+                $itemCategory = strtolower(trim((string) $item->category));
 
-                $qty = max(0, $item->quantity);
-
-                $itemCategory = strtolower(trim($item->category));
-
-                if (
-                    $category == 'garments' &&
-                    in_array($itemCategory, [
-                        'signature',
-                        'flowy',
-                        'trouser',
-                        'regular prints',
-                        'fusion co-ords',
-                        'festive',
-                        'composed rotary',
-                        'premium',
-                        'casual',
-                        'glam',
-                        'dailywear',
-                        'regular running',
-                        'regular panel',
-                        'modish',
-                        'trendy',
-                        'premium wear',
-                        'tops'
-                    ])
-                ) {
+                if (in_array($itemCategory, $mapping, true)) {
                     $achieved += $qty;
                 }
-
-                elseif (
-                    $category == 'unstitched' &&
-                    in_array($itemCategory, [
-                        'dupatta - dyed',
-                        'unstitched trousers'
-                    ])
-                ) {
-                    $achieved += $qty;
-                }
-
-                elseif (
-                    $category == 'accessories' &&
-                    in_array($itemCategory, [
-                        'hand bag',
-                        'scarves - printed',
-                        'sunglasses',
-                        'jewellery',
-                        'clutches',
-                        'perfumes',
-                        'body mist',
-                        'non-tradable'
-                    ])
-                ) {
-                    $achieved += $qty;
-                }
-
             }
 
-            $achieved = min($achieved, $target);
+            $achieved = $target > 0 ? min($achieved, $target) : 0;
 
             $percentage = $target > 0
-                ? round(($achieved / $target) * 100)
+                ? min(100, (int) round(($achieved / $target) * 100))
                 : 0;
 
-            if ($percentage > 100) {
-                $percentage = 100;
-            }
-
             $rows[] = [
-
                 'branch_id' => $branch->id,
-
                 'branch_name' => $branch->name,
-
                 'target' => $target,
-
                 'achieved' => $achieved,
-
                 'achievement_percentage' => $percentage,
-
-                'remaining_percentage' => 100 - $percentage
-
+                'remaining_percentage' => 100 - $percentage,
             ];
-
         }
 
         usort($rows, function ($a, $b) {
-
             return $b['achievement_percentage'] <=> $a['achievement_percentage'];
-
         });
 
         foreach ($rows as $index => &$row) {
-
             $row['rank'] = $index + 1;
-
         }
+        unset($row);
 
         $response[] = [
-
             'category' => ucfirst($category),
-
-            'branches' => $rows
-
+            'branches' => $rows,
         ];
-
     }
 
     return response()->json([
-
         'status' => 200,
-
         'message' => 'Branch Comparison',
-
-        'data' => $response
-
+        'type' => $type,
+        'from' => $from->toDateString(),
+        'to' => $to->toDateString(),
+        'week' => $type === 'weekly' ? $weekNumber : null,
+        'data' => $response,
     ]);
 }
 
@@ -1335,4 +1281,82 @@ public function staffDetails($staffId)
     ]);
 
 }
+
+    private function resolvePeriod(string $type): array
+    {
+        if ($type === 'weekly') {
+            return [
+                Carbon::now()->startOfWeek(),
+                Carbon::now()->endOfWeek(),
+                'weekly',
+            ];
+        }
+
+        return [
+            Carbon::now()->startOfMonth(),
+            Carbon::now()->endOfMonth(),
+            'monthly',
+        ];
+    }
+
+    private function currentWeekOfMonth(): int
+    {
+        $now = Carbon::now();
+        $monthStart = $now->copy()->startOfMonth();
+        $monthEnd = $now->copy()->endOfMonth();
+
+        for ($i = 1; $i <= 4; $i++) {
+            $start = $monthStart->copy()->addDays(($i - 1) * 7)->startOfDay();
+            $end = $start->copy()->addDays(6)->endOfDay();
+
+            if ($i === 4 || $end->gt($monthEnd)) {
+                $end = $monthEnd->copy()->endOfDay();
+            }
+
+            if ($now->between($start, $end)) {
+                return $i;
+            }
+        }
+
+        return min(4, (int) ceil($now->day / 7));
+    }
+
+    private function categoryMappings(): array
+    {
+        return [
+            'garments' => [
+                'signature',
+                'flowy',
+                'trouser',
+                'regular prints',
+                'fusion co-ords',
+                'festive',
+                'composed rotary',
+                'premium',
+                'casual',
+                'glam',
+                'dailywear',
+                'regular running',
+                'regular panel',
+                'modish',
+                'trendy',
+                'premium wear',
+                'tops',
+            ],
+            'unstitched' => [
+                'dupatta - dyed',
+                'unstitched trousers',
+            ],
+            'accessories' => [
+                'hand bag',
+                'scarves - printed',
+                'sunglasses',
+                'jewellery',
+                'clutches',
+                'perfumes',
+                'body mist',
+                'non-tradable',
+            ],
+        ];
+    }
 }
