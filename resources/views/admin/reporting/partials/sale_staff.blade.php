@@ -1,4 +1,5 @@
 @if (!empty($data['summary']))
+    @php $summaryAssigned = !empty($data['summary']['is_assigned']); @endphp
     <div class="row mb-4">
         <div class="col-md-3 mb-3">
             <div class="card card-statistic-1 mb-0">
@@ -12,7 +13,13 @@
             <div class="card card-statistic-1 mb-0">
                 <div class="card-wrap">
                     <div class="card-header"><h4>Target</h4></div>
-                    <div class="card-body">{{ number_format($data['summary']['target']) }}</div>
+                    <div class="card-body">
+                        @if ($summaryAssigned)
+                            {{ number_format($data['summary']['target']) }}
+                        @else
+                            <span class="text-muted">Not Assigned</span>
+                        @endif
+                    </div>
                 </div>
             </div>
         </div>
@@ -20,7 +27,13 @@
             <div class="card card-statistic-1 mb-0">
                 <div class="card-wrap">
                     <div class="card-header"><h4>Achieved</h4></div>
-                    <div class="card-body">{{ number_format($data['summary']['achieved']) }}</div>
+                    <div class="card-body">
+                        @if ($summaryAssigned)
+                            {{ number_format($data['summary']['achieved']) }}
+                        @else
+                            <span class="text-muted">Not Assigned</span>
+                        @endif
+                    </div>
                 </div>
             </div>
         </div>
@@ -28,7 +41,13 @@
             <div class="card card-statistic-1 mb-0">
                 <div class="card-wrap">
                     <div class="card-header"><h4>Achievement %</h4></div>
-                    <div class="card-body">{{ $data['summary']['achieved_percentage'] }}%</div>
+                    <div class="card-body">
+                        @if ($summaryAssigned)
+                            {{ $data['summary']['achieved_percentage'] }}%
+                        @else
+                            <span class="text-muted">Not Assigned</span>
+                        @endif
+                    </div>
                 </div>
             </div>
         </div>
@@ -50,21 +69,44 @@
             </thead>
             <tbody>
                 @forelse ($data['target_vs_achievement'] as $row)
+                    @php $assigned = !empty($row['is_assigned']); @endphp
                     <tr>
                         <td>{{ $row['category'] }}</td>
-                        <td>{{ number_format($row['target']) }}</td>
-                        <td>{{ number_format($row['achieved']) }}</td>
                         <td>
-                            <div class="progress" style="height: 18px;">
-                                <div class="progress-bar bg-success" role="progressbar"
-                                     style="width: {{ $row['achieved_percentage'] }}%;"
-                                     aria-valuenow="{{ $row['achieved_percentage'] }}"
-                                     aria-valuemin="0" aria-valuemax="100">
-                                    {{ $row['achieved_percentage'] }}%
-                                </div>
-                            </div>
+                            @if ($assigned)
+                                {{ number_format($row['target']) }}
+                            @else
+                                <span class="text-muted">Not Assigned</span>
+                            @endif
                         </td>
-                        <td>{{ $row['remaining_percentage'] }}%</td>
+                        <td>
+                            @if ($assigned)
+                                {{ number_format($row['achieved']) }}
+                            @else
+                                <span class="text-muted">Not Assigned</span>
+                            @endif
+                        </td>
+                        <td>
+                            @if ($assigned)
+                                <div class="progress" style="height: 18px;">
+                                    <div class="progress-bar bg-success" role="progressbar"
+                                         style="width: {{ min(100, $row['achieved_percentage']) }}%;"
+                                         aria-valuenow="{{ $row['achieved_percentage'] }}"
+                                         aria-valuemin="0" aria-valuemax="100">
+                                        {{ $row['achieved_percentage'] }}%
+                                    </div>
+                                </div>
+                            @else
+                                <span class="text-muted">Not Assigned</span>
+                            @endif
+                        </td>
+                        <td>
+                            @if ($assigned)
+                                {{ $row['remaining_percentage'] }}%
+                            @else
+                                <span class="text-muted">Not Assigned</span>
+                            @endif
+                        </td>
                     </tr>
                 @empty
                     <tr>

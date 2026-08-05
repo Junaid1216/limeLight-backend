@@ -36,23 +36,19 @@ class AsmComparisonController extends Controller
     /*
     |--------------------------------------------------------------------------
     | Date Range
+    | weekly  = current week of current month (week1: 1–7, week2: 8–14, ...)
+    | monthly = current calendar month
     |--------------------------------------------------------------------------
     */
 
-    $type = $request->type ?? 'weekly';
+    $type = strtolower($request->type ?? 'weekly');
 
-    if ($type == 'monthly') {
-
-        $from = Carbon::now()->startOfMonth();
-
-        $to = Carbon::now()->endOfMonth();
-
+    if ($type === 'monthly') {
+        $from = Carbon::now()->startOfMonth()->startOfDay();
+        $to = Carbon::now()->endOfMonth()->endOfDay();
     } else {
-
-        $from = Carbon::today()->subDays(6)->startOfDay();
-
-        $to = Carbon::today()->endOfDay();
-
+        $type = 'weekly';
+        [$from, $to] = $this->currentWeekRangeOfMonth();
     }
 
     /*
@@ -87,7 +83,10 @@ class AsmComparisonController extends Controller
         */
 
         $invoices = Sale::where('shop_name', $branch->name)
-            ->whereBetween('date', [$from, $to])
+            ->whereRaw('DATE(`date`) BETWEEN ? AND ?', [
+                $from->toDateString(),
+                $to->toDateString(),
+            ])
             ->count();
 
         /*
@@ -141,9 +140,13 @@ class AsmComparisonController extends Controller
 
         'data' => [
 
+            'type' => $type,
+
             'from' => $from->toDateString(),
 
             'to' => $to->toDateString(),
+
+            'week' => $type === 'weekly' ? $this->currentWeekOfMonth() : null,
 
             'branches' => $rows
 
@@ -273,20 +276,14 @@ public function regionComparison(Request $request)
         ], 401);
     }
 
-    $type = $request->type ?? 'weekly';
+    $type = strtolower($request->type ?? 'weekly');
 
-     if ($type == 'monthly') {
-
-        $from = Carbon::now()->startOfMonth();
-
-        $to = Carbon::now()->endOfMonth();
-
+    if ($type === 'monthly') {
+        $from = Carbon::now()->startOfMonth()->startOfDay();
+        $to = Carbon::now()->endOfMonth()->endOfDay();
     } else {
-
-        $from = Carbon::today()->subDays(6)->startOfDay();
-
-        $to = Carbon::today()->endOfDay();
-
+        $type = 'weekly';
+        [$from, $to] = $this->currentWeekRangeOfMonth();
     }
 
     $regions = Region::all();
@@ -309,7 +306,10 @@ public function regionComparison(Request $request)
             ->sum('footfall');
 
         $invoices = Sale::whereIn('shop_name', $branchNames)
-            ->whereBetween('date', [$from, $to])
+            ->whereRaw('DATE(`date`) BETWEEN ? AND ?', [
+                $from->toDateString(),
+                $to->toDateString(),
+            ])
             ->count();
 
         $conversion = $traffic > 0
@@ -379,9 +379,13 @@ return response()->json([
 
     'data' => [
 
+        'type' => $type,
+
         'from' => $from->toDateString(),
 
         'to' => $to->toDateString(),
+
+        'week' => $type === 'weekly' ? $this->currentWeekOfMonth() : null,
 
         'your_region' => $yourRegion,
 
@@ -668,8 +672,13 @@ public function staffComparison(Request $request)
         ], 401);
     }
 
-    $commissionRate = Commission::where('role', 'sales_staff')
-        ->value('commission') ?? 0;
+    $commissionRate = (float) (Commission::where('role', 'sales_staff')
+        ->value('commission') ?? 0);
+
+    $month = Carbon::now()->format('F');
+    $year = (string) Carbon::now()->year;
+    $monthStart = Carbon::now()->startOfMonth()->toDateString();
+    $monthEnd = Carbon::now()->endOfMonth()->toDateString();
 
     $branches = Branch::where('region_id', $asm->region_id)->get();
 
@@ -727,17 +736,36 @@ public function staffComparison(Request $request)
 
             /*
             |--------------------------------------------------------------------------
-            | Total Target
+            | Current month assigned targets
             |--------------------------------------------------------------------------
             */
 
-            $target = AssignedTarget::where('user_id', $staff->id)
-                ->sum('target');
+            // Only admin-approved targets count as assigned
+            $assignedTargets = AssignedTarget::where('user_id', $staff->id)
+                ->where('month', $month)
+                ->where('year', $year)
+                ->where('status', 'approved')
+                ->get();
 
+            $categoryTargets = [
+                'garments' => 0,
+                'unstitched' => 0,
+                'accessories' => 0,
+            ];
+
+            foreach ($assignedTargets as $assignedTarget) {
+                $key = strtolower(trim((string) $assignedTarget->category));
+                if (array_key_exists($key, $categoryTargets)) {
+                    $categoryTargets[$key] += max(0, (float) $assignedTarget->target);
+                }
+            }
+
+            $target = array_sum($categoryTargets);
+            $isAssigned = $target > 0;
 
             /*
             |--------------------------------------------------------------------------
-            | Get Staff Sales
+            | Get Staff Sales (current month)
             |--------------------------------------------------------------------------
             */
 
@@ -745,19 +773,29 @@ public function staffComparison(Request $request)
                     'salesperson_code',
                     $staff->employee_id
                 )
-                ->whereHas('sale', function ($q) use ($branch) {
-                    $q->where('shop_name', $branch->name);
+                ->whereHas('sale', function ($q) use ($branch, $monthStart, $monthEnd) {
+                    $q->where('shop_name', $branch->name)
+                        ->whereRaw('DATE(`date`) BETWEEN ? AND ?', [
+                            $monthStart,
+                            $monthEnd,
+                        ]);
                 })
                 ->get();
 
 
             /*
             |--------------------------------------------------------------------------
-            | Category Achieved
+            | Category Achieved + sale amount (for commission on achieved)
             |--------------------------------------------------------------------------
             */
 
             $categoryAchieved = [
+                'garments' => 0,
+                'unstitched' => 0,
+                'accessories' => 0
+            ];
+
+            $categorySaleAmount = [
                 'garments' => 0,
                 'unstitched' => 0,
                 'accessories' => 0
@@ -769,6 +807,7 @@ public function staffComparison(Request $request)
                 $itemCategory = strtolower(trim($item->category));
 
                 $qty = max(0, (float) $item->quantity);
+                $lineAmount = $qty * max(0, (float) $item->price);
 
 
                 /*
@@ -780,6 +819,7 @@ public function staffComparison(Request $request)
                 if (in_array($itemCategory, $garmentsCategories)) {
 
                     $categoryAchieved['garments'] += $qty;
+                    $categorySaleAmount['garments'] += $lineAmount;
 
                 }
 
@@ -793,6 +833,7 @@ public function staffComparison(Request $request)
                 elseif (in_array($itemCategory, $unstitchedCategories)) {
 
                     $categoryAchieved['unstitched'] += $qty;
+                    $categorySaleAmount['unstitched'] += $lineAmount;
 
                 }
 
@@ -806,6 +847,7 @@ public function staffComparison(Request $request)
                 elseif (in_array($itemCategory, $accessoriesCategories)) {
 
                     $categoryAchieved['accessories'] += $qty;
+                    $categorySaleAmount['accessories'] += $lineAmount;
 
                 }
             }
@@ -813,35 +855,27 @@ public function staffComparison(Request $request)
 
             /*
             |--------------------------------------------------------------------------
-            | Calculate Category Targets
+            | Cap Achieved Per Category + achieved sale amount for commission
             |--------------------------------------------------------------------------
             */
 
-            $categoryTargets = [];
+            $achievedSaleAmount = 0;
 
             foreach ($categories as $category) {
+                $rawQty = $categoryAchieved[$category];
+                $catTarget = $categoryTargets[$category];
 
-                $categoryTargets[$category] = AssignedTarget::where([
-                    'user_id' => $staff->id,
-                    'category' => $category
-                ])->sum('target');
+                if ($catTarget > 0) {
+                    $cappedQty = min($rawQty, $catTarget);
+                    $categoryAchieved[$category] = $cappedQty;
 
-            }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | Cap Achieved Per Category
-            |--------------------------------------------------------------------------
-            */
-
-            foreach ($categories as $category) {
-
-                $categoryAchieved[$category] = min(
-                    $categoryAchieved[$category],
-                    $categoryTargets[$category]
-                );
-
+                    // Commission only on achieved portion of sales
+                    if ($rawQty > 0) {
+                        $achievedSaleAmount += $categorySaleAmount[$category] * ($cappedQty / $rawQty);
+                    }
+                } else {
+                    $categoryAchieved[$category] = 0;
+                }
             }
 
 
@@ -860,7 +894,7 @@ public function staffComparison(Request $request)
             |--------------------------------------------------------------------------
             */
 
-            $achieved = min($achieved, $target);
+            $achieved = $isAssigned ? min($achieved, $target) : 0;
 
 
             /*
@@ -869,10 +903,9 @@ public function staffComparison(Request $request)
             |--------------------------------------------------------------------------
             */
 
-            $remaining = max(
-                $target - $achieved,
-                0
-            );
+            $remaining = $isAssigned
+                ? max($target - $achieved, 0)
+                : 0;
 
 
             /*
@@ -881,29 +914,20 @@ public function staffComparison(Request $request)
             |--------------------------------------------------------------------------
             */
 
-            $percentage = $target > 0
-                ? round(($achieved / $target) * 100)
+            $percentage = $isAssigned
+                ? min(100, (int) round(($achieved / $target) * 100))
                 : 0;
-
-            $percentage = min($percentage, 100);
 
 
             /*
             |--------------------------------------------------------------------------
-            | Commission
+            | Commission: only if target assigned, based on achieved sales
             |--------------------------------------------------------------------------
             */
 
-            $saleAmount = $saleItems->sum(function ($item) {
-
-                return max(0, $item->price * $item->quantity);
-
-            });
-
-            $commission = round(
-                $saleAmount * ($commissionRate / 100),
-                2
-            );
+            $commission = $isAssigned
+                ? (int) round($achievedSaleAmount * ($commissionRate / 100))
+                : 0;
 
 
             /*
@@ -918,15 +942,17 @@ public function staffComparison(Request $request)
 
                 'name' => $staff->name,
 
-                'target' => $target,
+                'is_assigned' => $isAssigned,
 
-                'achieved' => $achieved,
+                'target' => $isAssigned ? $target : 0,
+
+                'achieved' => $isAssigned ? $achieved : 0,
 
                 'remaining' => $remaining,
 
                 'achievement_percentage' => $percentage,
 
-                'remaining_percentage' => 100 - $percentage,
+                'remaining_percentage' => $isAssigned ? (100 - $percentage) : 0,
 
                 'commission' => $commission
 
@@ -1015,7 +1041,14 @@ public function branchTargets()
 
         foreach ($staffMembers as $staff) {
 
-            $targets = AssignedTarget::where('user_id', $staff->id)->get();
+            $month = Carbon::now()->format('F');
+            $year = (string) Carbon::now()->year;
+
+            $targets = AssignedTarget::where('user_id', $staff->id)
+                ->where('month', $month)
+                ->where('year', $year)
+                ->where('status', 'approved')
+                ->get();
 
             $garments = 0;
             $unstitched = 0;
@@ -1109,7 +1142,7 @@ public function staffDetails($staffId)
     }
 
     $month = Carbon::now()->format('F');
-    $year  = Carbon::now()->year;
+    $year  = (string) Carbon::now()->year;
 
     $categories = [
         'garments',
@@ -1126,16 +1159,16 @@ public function staffDetails($staffId)
 
         /*
         |--------------------------------------------------------------------------
-        | Assigned Target
+        | Assigned Target (only after admin approval)
         |--------------------------------------------------------------------------
         */
 
         $target = AssignedTarget::where([
                 'user_id' => $staff->id,
-                // 'month' => $month,
-                // 'year' => $year,
+                'month' => $month,
+                'year' => $year,
                 'category' => $category,
-                // 'status' => 'approved'
+                'status' => 'approved',
             ])->sum('target');
 
         /*
@@ -1285,18 +1318,38 @@ public function staffDetails($staffId)
     private function resolvePeriod(string $type): array
     {
         if ($type === 'weekly') {
-            return [
-                Carbon::now()->startOfWeek(),
-                Carbon::now()->endOfWeek(),
-                'weekly',
-            ];
+            [$from, $to] = $this->currentWeekRangeOfMonth();
+
+            return [$from, $to, 'weekly'];
         }
 
         return [
-            Carbon::now()->startOfMonth(),
-            Carbon::now()->endOfMonth(),
+            Carbon::now()->startOfMonth()->startOfDay(),
+            Carbon::now()->endOfMonth()->endOfDay(),
             'monthly',
         ];
+    }
+
+    private function currentWeekRangeOfMonth(): array
+    {
+        $now = Carbon::now();
+        $monthStart = $now->copy()->startOfMonth()->startOfDay();
+        $monthEnd = $now->copy()->endOfMonth()->endOfDay();
+
+        for ($i = 1; $i <= 4; $i++) {
+            $start = $monthStart->copy()->addDays(($i - 1) * 7)->startOfDay();
+            $end = $start->copy()->addDays(6)->endOfDay();
+
+            if ($i === 4 || $end->gt($monthEnd)) {
+                $end = $monthEnd->copy()->endOfDay();
+            }
+
+            if ($now->between($start, $end)) {
+                return [$start, $end];
+            }
+        }
+
+        return [$monthStart, $monthEnd];
     }
 
     private function currentWeekOfMonth(): int

@@ -17,9 +17,18 @@ class SalesHistoryController extends Controller
 {
     public function index(Request $request)
     {
-        $period = $request->get('period', 'day');
+        $period = $request->get('period', 'weekly');
         $role = $request->get('role', '');
         $id = $request->get('id');
+
+        // Backward-compatible aliases from old filters
+        if (in_array($period, ['day', 'daily'], true)) {
+            $period = 'daily';
+        } elseif (in_array($period, ['week', 'weekly'], true)) {
+            $period = 'weekly';
+        } elseif (in_array($period, ['month', 'monthly'], true)) {
+            $period = 'monthly';
+        }
 
         [$from, $to] = $this->resolvePeriod($period);
 
@@ -86,24 +95,55 @@ class SalesHistoryController extends Controller
 
     private function resolvePeriod(string $period): array
     {
-        if ($period === 'week') {
+        if ($period === 'daily') {
             return [
-                Carbon::now()->startOfWeek()->startOfDay(),
-                Carbon::now()->endOfWeek()->endOfDay(),
+                Carbon::today()->startOfDay(),
+                Carbon::today()->endOfDay(),
             ];
         }
 
-        if ($period === 'month') {
+        if ($period === 'monthly') {
             return [
                 Carbon::now()->startOfMonth()->startOfDay(),
                 Carbon::now()->endOfMonth()->endOfDay(),
             ];
         }
 
-        return [
-            Carbon::today()->startOfDay(),
-            Carbon::today()->endOfDay(),
-        ];
+        // weekly — current week within the current month (week1: 1–7, week2: 8–14, ...)
+        return $this->currentWeekRangeOfMonth();
+    }
+
+    private function currentWeekRangeOfMonth(): array
+    {
+        $now = Carbon::now();
+        $monthStart = $now->copy()->startOfMonth()->startOfDay();
+        $monthEnd = $now->copy()->endOfMonth()->endOfDay();
+
+        for ($i = 1; $i <= 4; $i++) {
+            $start = $monthStart->copy()->addDays(($i - 1) * 7)->startOfDay();
+            $end = $start->copy()->addDays(6)->endOfDay();
+
+            if ($i === 4 || $end->gt($monthEnd)) {
+                $end = $monthEnd->copy()->endOfDay();
+            }
+
+            if ($now->between($start, $end)) {
+                return [$start, $end];
+            }
+        }
+
+        return [$monthStart, $monthEnd];
+    }
+
+    /**
+     * sales.date is a string column — compare by DATE() so daily/weekly/monthly filters work.
+     */
+    private function applySaleDateFilter($query, Carbon $from, Carbon $to)
+    {
+        return $query->whereRaw('DATE(`date`) BETWEEN ? AND ?', [
+            $from->toDateString(),
+            $to->toDateString(),
+        ]);
     }
 
     private function asmSales(AreaSaleManager $asm, Carbon $from, Carbon $to): array
@@ -115,9 +155,11 @@ class SalesHistoryController extends Controller
             return [[], $this->emptySummary()];
         }
 
-        $sales = Sale::with('items')
-            ->whereIn('shop_name', $branchNames)
-            ->whereBetween('date', [$from, $to])
+        $sales = $this->applySaleDateFilter(
+            Sale::with('items')->whereIn('shop_name', $branchNames),
+            $from,
+            $to
+        )
             ->orderByDesc('date')
             ->get();
 
@@ -161,9 +203,11 @@ class SalesHistoryController extends Controller
             $commissionRate = 5;
         }
 
-        $sales = Sale::with('items')
-            ->where('shop_name', $branch->name)
-            ->whereBetween('date', [$from, $to])
+        $sales = $this->applySaleDateFilter(
+            Sale::with('items')->where('shop_name', $branch->name),
+            $from,
+            $to
+        )
             ->orderByDesc('date')
             ->get();
 
@@ -208,13 +252,15 @@ class SalesHistoryController extends Controller
 
         $commissionRate = Commission::where('role', 'sales_staff')->value('commission') ?? 0;
 
-        $sales = Sale::with(['items' => function ($q) use ($staff) {
-            $q->where('salesperson_code', $staff->employee_id);
-        }])
-            ->whereHas('items', function ($q) use ($staff) {
+        $sales = $this->applySaleDateFilter(
+            Sale::with(['items' => function ($q) use ($staff) {
                 $q->where('salesperson_code', $staff->employee_id);
-            })
-            ->whereBetween('date', [$from, $to])
+            }])->whereHas('items', function ($q) use ($staff) {
+                $q->where('salesperson_code', $staff->employee_id);
+            }),
+            $from,
+            $to
+        )
             ->orderByDesc('date')
             ->get();
 

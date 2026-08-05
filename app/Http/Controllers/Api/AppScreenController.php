@@ -219,18 +219,12 @@ class AppScreenController extends Controller
         $rows = [];
 
         foreach ($staffMembers as $staff) {
+            // Only admin-approved targets count as assigned
             $target = (float) AssignedTarget::where('user_id', $staff->id)
                 ->where('month', $month)
                 ->where('year', $year)
                 ->where('status', 'approved')
                 ->sum('target');
-
-            if ($target <= 0) {
-                $target = (float) AssignedTarget::where('user_id', $staff->id)
-                    ->where('month', $month)
-                    ->where('year', $year)
-                    ->sum('target');
-            }
 
             $saleItems = SaleItem::where('salesperson_code', (string) $staff->employee_id)
                 ->whereHas('sale', function ($q) use ($from, $to, $branchName) {

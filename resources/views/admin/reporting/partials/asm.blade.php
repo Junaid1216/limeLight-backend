@@ -48,13 +48,38 @@
                 </thead>
                 <tbody>
                     @forelse ($categoryBlock['branches'] as $row)
+                        @php $assigned = !empty($row['is_assigned']); @endphp
                         <tr>
                             <td>{{ $row['rank'] }}</td>
                             <td>{{ $row['branch_name'] }}</td>
-                            <td>{{ number_format($row['target']) }}</td>
-                            <td>{{ number_format($row['achieved']) }}</td>
-                            <td>{{ $row['achievement_percentage'] }}%</td>
-                            <td>{{ $row['remaining_percentage'] }}%</td>
+                            <td>
+                                @if ($assigned)
+                                    {{ number_format($row['target']) }}
+                                @else
+                                    <span class="text-muted">Not Assigned</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if ($assigned)
+                                    {{ number_format($row['achieved']) }}
+                                @else
+                                    <span class="text-muted">Not Assigned</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if ($assigned)
+                                    {{ $row['achievement_percentage'] }}%
+                                @else
+                                    <span class="text-muted">Not Assigned</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if ($assigned)
+                                    {{ $row['remaining_percentage'] }}%
+                                @else
+                                    <span class="text-muted">Not Assigned</span>
+                                @endif
+                            </td>
                         </tr>
                     @empty
                         <tr>
@@ -128,14 +153,45 @@
                 </thead>
                 <tbody>
                     @forelse ($branchBlock['staff'] as $row)
+                        @php $assigned = !empty($row['is_assigned']); @endphp
                         <tr>
                             <td>{{ $row['rank'] }}</td>
                             <td>{{ $row['name'] }}</td>
-                            <td>{{ number_format($row['target']) }}</td>
-                            <td>{{ number_format($row['achieved']) }}</td>
-                            <td>{{ number_format($row['remaining']) }}</td>
-                            <td>{{ $row['achievement_percentage'] }}%</td>
-                            <td>{{ number_format($row['commission'], 2) }}</td>
+                            <td>
+                                @if ($assigned)
+                                    {{ number_format($row['target']) }}
+                                @else
+                                    <span class="text-muted">Not Assigned</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if ($assigned)
+                                    {{ number_format($row['achieved']) }}
+                                @else
+                                    <span class="text-muted">Not Assigned</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if ($assigned)
+                                    {{ number_format($row['remaining']) }}
+                                @else
+                                    <span class="text-muted">Not Assigned</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if ($assigned)
+                                    {{ $row['achievement_percentage'] }}%
+                                @else
+                                    <span class="text-muted">Not Assigned</span>
+                                @endif
+                            </td>
+                            <td>
+                                @if ($assigned)
+                                    {{ number_format($row['commission'], 2) }}
+                                @else
+                                    <span class="text-muted">Not Assigned</span>
+                                @endif
+                            </td>
                         </tr>
                     @empty
                         <tr>

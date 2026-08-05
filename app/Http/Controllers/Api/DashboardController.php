@@ -60,18 +60,12 @@ class DashboardController extends Controller
         |--------------------------------------------------------------------------
         */
 
+        // Only admin-approved targets count as assigned
         $targets = AssignedTarget::where('user_id', $user->id)
             ->whereIn('month', $monthVariants)
             ->whereIn('year', $yearVariants)
             ->where('status', 'approved')
             ->get();
-
-        if ($targets->isEmpty()) {
-            $targets = AssignedTarget::where('user_id', $user->id)
-                ->whereIn('month', $monthVariants)
-                ->whereIn('year', $yearVariants)
-                ->get();
-        }
 
         $assigned = [
             'garments' => 0,
@@ -267,18 +261,12 @@ class DashboardController extends Controller
         |--------------------------------------------------------------------------
         */
 
+        // Only admin-approved targets count as assigned
         $targets = AssignedTarget::where('user_id', $user->id)
             ->whereIn('month', $monthVariants)
             ->whereIn('year', $yearVariants)
             ->where('status', 'approved')
             ->get();
-
-        if ($targets->isEmpty()) {
-            $targets = AssignedTarget::where('user_id', $user->id)
-                ->whereIn('month', $monthVariants)
-                ->whereIn('year', $yearVariants)
-                ->get();
-        }
 
         $assigned = [
             'garments' => 0,
@@ -398,64 +386,63 @@ class DashboardController extends Controller
     }
 
     public function slipBoundIncentive()
-{
-    $user = Auth::user();
+    {
+        $user = Auth::user();
 
-    if (!$user) {
-        return response()->json([
-            'status' => 401,
-            'message' => 'Unauthenticated'
-        ],401);
-    }
+        if (!$user) {
+            return response()->json([
+                'status' => 401,
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
 
-    
+        $monthStart = Carbon::now()->startOfMonth()->toDateString();
+        $monthEnd = Carbon::now()->endOfMonth()->toDateString();
+
         $records = [];
 
+        // Current month invoices where this sales staff is on the slip
         $sales = Sale::whereHas('items', function ($q) use ($user) {
-            $q->where('salesperson_code', $user->employee_id);
-        })->with(['items' => function ($q) use ($user) {
-            $q->where('salesperson_code', $user->employee_id);
-        }])->get();
+                $q->where('salesperson_code', $user->employee_id);
+            })
+            ->whereRaw('DATE(`date`) BETWEEN ? AND ?', [$monthStart, $monthEnd])
+            ->with(['items' => function ($q) use ($user) {
+                $q->where('salesperson_code', $user->employee_id);
+            }])
+            ->orderByDesc('date')
+            ->get();
 
         foreach ($sales as $sale) {
+            $netTotal = (float) $sale->net_total;
 
-            $slab = Slab::where('from_amount', '<=', $sale->net_total)
-                ->where('to_amount', '>=', $sale->net_total)
+            // Match admin slab against this invoice net total
+            $slab = Slab::whereRaw('CAST(from_amount AS DECIMAL(12,2)) <= ?', [$netTotal])
+                ->whereRaw('CAST(to_amount AS DECIMAL(12,2)) >= ?', [$netTotal])
+                ->orderByRaw('CAST(from_amount AS DECIMAL(12,2)) ASC')
                 ->first();
 
-                /*
-                |--------------------------------------------------------------------------
-                | If no slab exists for this net sale, skip this sale
-                |--------------------------------------------------------------------------
-                */
+            if (!$slab) {
+                continue;
+            }
 
-                if (!$slab) {
-                    continue;
-                }
-            
             $records[] = [
-
                 'date' => Carbon::parse($sale->date)->format('d M Y'),
-
                 'slab' => $slab->slab_name ?? '-',
-
                 'invoice_id' => $sale->invoice_id,
-
                 'sales_id' => $user->employee_id,
-
-                'net_sale' => $sale->net_total,
-
-                'incentive' => $slab->incentive_amount ?? 0
-
+                'net_sale' => $netTotal,
+                'incentive' => (float) ($slab->incentive_amount ?? 0),
             ];
         }
 
-    return response()->json([
-        'status'=>200,
-        'message'=>'Slip bound incentives',
-        'data'=>$records
-    ]);
-}
+        return response()->json([
+            'status' => 200,
+            'message' => 'Slip bound incentives',
+            'from' => $monthStart,
+            'to' => $monthEnd,
+            'data' => $records,
+        ]);
+    }
 
 public function conversionRate(Request $request)
 {
@@ -637,18 +624,12 @@ public function staffComparison(Request $request)
         |--------------------------------------------------------------------------
         */
 
+        // Only admin-approved targets count as assigned
         $target = (float) AssignedTarget::where('user_id', $staff->id)
             ->whereIn('month', $monthVariants)
             ->whereIn('year', $yearVariants)
             ->where('status', 'approved')
             ->sum('target');
-
-        if ($target <= 0) {
-            $target = (float) AssignedTarget::where('user_id', $staff->id)
-                ->whereIn('month', $monthVariants)
-                ->whereIn('year', $yearVariants)
-                ->sum('target');
-        }
 
         /*
         |--------------------------------------------------------------------------

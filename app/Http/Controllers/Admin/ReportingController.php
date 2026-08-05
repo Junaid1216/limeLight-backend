@@ -68,19 +68,19 @@ class ReportingController extends Controller
             if ($role === 'asm') {
                 $selected = $asms->firstWhere('id', (int) $id);
                 if ($selected) {
-                    $comparisons = $this->asmComparisons($selected, $from, $to);
+                    $comparisons = $this->asmComparisons($selected, $from, $to, $period);
                 }
             } elseif ($role === 'branch_manager') {
                 $selected = $branchManagers->firstWhere('id', (int) $id);
                 if ($selected) {
                     $selected->load('branch');
-                    $comparisons = $this->branchManagerComparisons($selected, $from, $to, $branchCategoryFilter);
+                    $comparisons = $this->branchManagerComparisons($selected, $from, $to, $branchCategoryFilter, $period);
                 }
             } elseif ($role === 'sale_staff') {
                 $selected = $saleStaff->firstWhere('id', (int) $id);
                 if ($selected) {
                     $selected->load('branch');
-                    $comparisons = $this->saleStaffComparisons($selected, $from, $to);
+                    $comparisons = $this->saleStaffComparisons($selected, $from, $to, $period);
                 }
             }
         }
@@ -109,27 +109,176 @@ class ReportingController extends Controller
             ];
         }
 
-        // weekly (default) — last 7 days, matching app
-        return [
-            Carbon::today()->subDays(6)->startOfDay(),
-            Carbon::today()->endOfDay(),
-        ];
+        // weekly — current week within the current month (week1: 1–7, week2: 8–14, ...)
+        return $this->currentWeekRangeOfMonth();
     }
 
-    private function asmComparisons(AreaSaleManager $asm, Carbon $from, Carbon $to): array
+    private function currentWeekRangeOfMonth(): array
+    {
+        $now = Carbon::now();
+        $monthStart = $now->copy()->startOfMonth()->startOfDay();
+        $monthEnd = $now->copy()->endOfMonth()->endOfDay();
+
+        for ($i = 1; $i <= 4; $i++) {
+            $start = $monthStart->copy()->addDays(($i - 1) * 7)->startOfDay();
+            $end = $start->copy()->addDays(6)->endOfDay();
+
+            if ($i === 4 || $end->gt($monthEnd)) {
+                $end = $monthEnd->copy()->endOfDay();
+            }
+
+            if ($now->between($start, $end)) {
+                return [$start, $end];
+            }
+        }
+
+        return [$monthStart, $monthEnd];
+    }
+
+    private function currentWeekOfMonth(): int
+    {
+        $now = Carbon::now();
+        $monthStart = $now->copy()->startOfMonth();
+        $monthEnd = $now->copy()->endOfMonth();
+
+        for ($i = 1; $i <= 4; $i++) {
+            $start = $monthStart->copy()->addDays(($i - 1) * 7)->startOfDay();
+            $end = $start->copy()->addDays(6)->endOfDay();
+
+            if ($i === 4 || $end->gt($monthEnd)) {
+                $end = $monthEnd->copy()->endOfDay();
+            }
+
+            if ($now->between($start, $end)) {
+                return $i;
+            }
+        }
+
+        return min(4, (int) ceil($now->day / 7));
+    }
+
+    private function currentMonthName(): string
+    {
+        return Carbon::now()->format('F');
+    }
+
+    private function currentYearValue()
+    {
+        return Carbon::now()->year;
+    }
+
+    /**
+     * Branch category target for selected period.
+     * Monthly = monthly_target
+     * Weekly  = monthly_target * week_N% / 100
+     */
+    private function resolveBranchCategoryTarget(?Target $targetRecord, string $period): float
+    {
+        if (!$targetRecord) {
+            return 0;
+        }
+
+        $monthly = (float) ($targetRecord->monthly_target ?? 0);
+
+        if ($period !== 'weekly') {
+            return $monthly;
+        }
+
+        $weekColumn = 'week_' . $this->currentWeekOfMonth();
+        $weekPercent = (float) ($targetRecord->{$weekColumn} ?? 0);
+
+        return round(($monthly * $weekPercent) / 100, 2);
+    }
+
+    private function findBranchTarget(int $branchId, string $category): ?Target
+    {
+        $month = $this->currentMonthName();
+        $year = $this->currentYearValue();
+
+        return Target::where('branch_id', $branchId)
+            ->where('category', $category)
+            ->where(function ($q) use ($month) {
+                $q->where('month', $month)
+                    ->orWhere('month', strtolower($month))
+                    ->orWhere('month', ucfirst(strtolower($month)));
+            })
+            ->where(function ($q) use ($year) {
+                $q->where('year', $year)->orWhere('year', (string) $year);
+            })
+            ->first();
+    }
+
+    private function getStaffMonthTargets(int $staffId)
+    {
+        $month = $this->currentMonthName();
+        $year = $this->currentYearValue();
+        $monthVariants = array_values(array_unique([
+            $month,
+            strtolower($month),
+            ucfirst(strtolower($month)),
+            Carbon::now()->format('m'),
+            (string) Carbon::now()->month,
+        ]));
+        $yearVariants = array_values(array_unique([$year, (string) $year]));
+
+        // Only admin-approved targets count as assigned
+        return AssignedTarget::where('user_id', $staffId)
+            ->whereIn('month', $monthVariants)
+            ->whereIn('year', $yearVariants)
+            ->where('status', 'approved')
+            ->get();
+    }
+
+    /**
+     * Staff assigned target for period (current month records).
+     * Weekly = monthly assigned * current week % of branch target (fallback 25%).
+     */
+    private function resolveStaffPeriodTarget(float $monthlyAssigned, Branch $branch, string $period): float
+    {
+        if ($monthlyAssigned <= 0) {
+            return 0;
+        }
+
+        if ($period !== 'weekly') {
+            return $monthlyAssigned;
+        }
+
+        $weekColumn = 'week_' . $this->currentWeekOfMonth();
+        $month = $this->currentMonthName();
+        $year = $this->currentYearValue();
+
+        $weekPercent = (float) (Target::where('branch_id', $branch->id)
+            ->where(function ($q) use ($month) {
+                $q->where('month', $month)
+                    ->orWhere('month', strtolower($month))
+                    ->orWhere('month', ucfirst(strtolower($month)));
+            })
+            ->where(function ($q) use ($year) {
+                $q->where('year', $year)->orWhere('year', (string) $year);
+            })
+            ->avg($weekColumn) ?? 25);
+
+        if ($weekPercent <= 0) {
+            $weekPercent = 25;
+        }
+
+        return round(($monthlyAssigned * $weekPercent) / 100, 2);
+    }
+
+    private function asmComparisons(AreaSaleManager $asm, Carbon $from, Carbon $to, string $period): array
     {
         $branches = Branch::where('region_id', $asm->region_id)->get();
 
         return [
             'type' => 'asm',
             'branch_conversion' => $this->branchConversionRows($branches, $from, $to),
-            'branch_category' => $this->branchCategoryRows($branches),
+            'branch_category' => $this->branchCategoryRows($branches, $from, $to, $period),
             'region_conversion' => $this->regionConversionRows($asm->region_id, $from, $to),
-            'staff_comparison' => $this->staffComparisonByBranches($branches),
+            'staff_comparison' => $this->staffComparisonByBranches($branches, $from, $to, $period),
         ];
     }
 
-    private function branchManagerComparisons(BranchManager $manager, Carbon $from, Carbon $to, string $branchCategoryFilter): array
+    private function branchManagerComparisons(BranchManager $manager, Carbon $from, Carbon $to, string $branchCategoryFilter, string $period): array
     {
         $branch = $manager->branch;
 
@@ -146,50 +295,92 @@ class ReportingController extends Controller
         }
 
         $peerBranches = Branch::where('region_id', $branch->region_id)->get();
-        $month = Carbon::now()->format('F');
-        $year = Carbon::now()->year;
+        $month = $this->currentMonthName();
+        $year = $this->currentYearValue();
 
-        $monthlyTarget = Target::where('branch_id', $branch->id)
-            ->where('month', $month)
-            ->where('year', $year)
+        $monthlyTarget = (float) Target::where('branch_id', $branch->id)
+            ->where(function ($q) use ($month) {
+                $q->where('month', $month)
+                    ->orWhere('month', strtolower($month))
+                    ->orWhere('month', ucfirst(strtolower($month)));
+            })
+            ->where(function ($q) use ($year) {
+                $q->where('year', $year)->orWhere('year', (string) $year);
+            })
             ->sum('monthly_target');
 
-        $achieved = Sale::where('shop_name', $branch->name)
-            ->whereBetween('date', [$from, $to])
-            ->sum('net_total');
+        $periodTarget = $monthlyTarget;
+        if ($period === 'weekly' && $monthlyTarget > 0) {
+            $weekColumn = 'week_' . $this->currentWeekOfMonth();
+            $weekPercent = (float) (Target::where('branch_id', $branch->id)
+                ->where(function ($q) use ($month) {
+                    $q->where('month', $month)
+                        ->orWhere('month', strtolower($month))
+                        ->orWhere('month', ucfirst(strtolower($month)));
+                })
+                ->where(function ($q) use ($year) {
+                    $q->where('year', $year)->orWhere('year', (string) $year);
+                })
+                ->avg($weekColumn) ?? 25);
+            if ($weekPercent <= 0) {
+                $weekPercent = 25;
+            }
+            $periodTarget = round(($monthlyTarget * $weekPercent) / 100, 2);
+        }
 
-        $achievedPercentage = $monthlyTarget > 0
-            ? min(100, round(($achieved / $monthlyTarget) * 100, 2))
-            : 0;
+        $isAssigned = $periodTarget > 0;
+        $achieved = $isAssigned
+            ? min(
+                $periodTarget,
+                (float) Sale::where('shop_name', $branch->name)
+                    ->whereBetween('date', [$from, $to])
+                    ->sum('net_total')
+            )
+            : null;
+
+        $achievedPercentage = ($isAssigned && $periodTarget > 0)
+            ? min(100, round(($achieved / $periodTarget) * 100, 2))
+            : null;
 
         return [
             'type' => 'branch_manager',
             'summary' => [
                 'branch' => $branch->name,
-                'monthly_target' => $monthlyTarget,
+                'is_assigned' => $isAssigned,
+                'monthly_target' => $isAssigned ? $periodTarget : null,
                 'achieved' => $achieved,
-                'remaining' => max($monthlyTarget - $achieved, 0),
+                'remaining' => $isAssigned ? max($periodTarget - $achieved, 0) : null,
                 'achieved_percentage' => $achievedPercentage,
-                'remaining_percentage' => 100 - $achievedPercentage,
-                'commission' => round($achieved * 0.05, 2),
+                'remaining_percentage' => $isAssigned ? max(0, 100 - min(100, $achievedPercentage)) : null,
+                'commission' => $isAssigned ? round($achieved * 0.05, 2) : 0,
             ],
-            'staff_comparison' => $this->staffComparisonForBranch($branch),
-            'branch_category' => $this->peerBranchCategoryRows($peerBranches, $branch->id, $branchCategoryFilter),
+            'staff_comparison' => $this->staffComparisonForBranch($branch, $from, $to, $period),
+            'branch_category' => $this->peerBranchCategoryRows($peerBranches, $branch->id, $branchCategoryFilter, $from, $to, $period),
             'branch_category_filter' => $branchCategoryFilter,
             'branch_category_filters' => $this->branchCategoryFilters(),
             'branch_conversion' => $this->branchConversionRows($peerBranches, $from, $to),
         ];
     }
 
-    private function saleStaffComparisons(SaleStaff $staff, Carbon $from, Carbon $to): array
+    private function saleStaffComparisons(SaleStaff $staff, Carbon $from, Carbon $to, string $period): array
     {
-        $targets = AssignedTarget::where('user_id', $staff->id)->get();
+        $targets = $this->getStaffMonthTargets($staff->id);
         $assigned = ['garments' => 0, 'unstitched' => 0, 'accessories' => 0];
 
         foreach ($targets as $target) {
-            $key = strtolower($target->category);
+            $key = strtolower(trim((string) $target->category));
             if (isset($assigned[$key])) {
-                $assigned[$key] = $target->target;
+                $assigned[$key] += max(0, (float) $target->target);
+            }
+        }
+
+        if ($staff->branch) {
+            foreach ($assigned as $category => $value) {
+                $assigned[$category] = $this->resolveStaffPeriodTarget($value, $staff->branch, $period);
+            }
+        } elseif ($period === 'weekly') {
+            foreach ($assigned as $category => $value) {
+                $assigned[$category] = round($value * 0.25, 2);
             }
         }
 
@@ -212,22 +403,30 @@ class ReportingController extends Controller
         }
 
         $targetVsAchievement = [];
+        $cappedTotalQty = 0;
         foreach ($assigned as $category => $target) {
-            $achieved = $sold[$category];
-            $percentage = $target > 0 ? min(100, round(($achieved / $target) * 100)) : 0;
+            $isAssigned = $target > 0;
+            $achieved = $isAssigned ? min($target, $sold[$category]) : null;
+            if ($isAssigned) {
+                $cappedTotalQty += $achieved;
+            }
+            $percentage = $isAssigned ? min(100, round(($achieved / $target) * 100)) : null;
             $targetVsAchievement[] = [
                 'category' => ucfirst($category),
-                'target' => $target,
+                'is_assigned' => $isAssigned,
+                'target' => $isAssigned ? $target : null,
                 'achieved' => $achieved,
                 'achieved_percentage' => $percentage,
-                'remaining_percentage' => 100 - $percentage,
+                'remaining_percentage' => $isAssigned ? (100 - $percentage) : null,
             ];
         }
 
         $totalTarget = array_sum($assigned);
-        $overallPercentage = $totalTarget > 0
+        $isOverallAssigned = $totalTarget > 0;
+        $totalQty = $isOverallAssigned ? min($totalTarget, $cappedTotalQty) : $totalQty;
+        $overallPercentage = $isOverallAssigned
             ? min(100, round(($totalQty / $totalTarget) * 100))
-            : 0;
+            : null;
 
         $conversionChart = [];
         $peak = null;
@@ -235,6 +434,10 @@ class ReportingController extends Controller
         if ($staff->branch) {
             $cursor = $from->copy()->startOfDay();
             $end = $to->copy()->startOfDay();
+            $today = Carbon::today();
+            if ($end->gt($today)) {
+                $end = $today->copy();
+            }
 
             while ($cursor->lte($end)) {
                 $day = $cursor->toDateString();
@@ -266,10 +469,11 @@ class ReportingController extends Controller
             'type' => 'sale_staff',
             'summary' => [
                 'branch' => optional($staff->branch)->name,
-                'target' => $totalTarget,
-                'achieved' => $totalQty,
+                'is_assigned' => $isOverallAssigned,
+                'target' => $isOverallAssigned ? $totalTarget : null,
+                'achieved' => $isOverallAssigned ? $totalQty : null,
                 'achieved_percentage' => $overallPercentage,
-                'remaining_percentage' => 100 - $overallPercentage,
+                'remaining_percentage' => $isOverallAssigned ? (100 - $overallPercentage) : null,
             ],
             'target_vs_achievement' => $targetVsAchievement,
             'conversion_chart' => $conversionChart,
@@ -306,32 +510,30 @@ class ReportingController extends Controller
         return $this->rankBy($rows, 'conversion_percentage');
     }
 
-    private function branchCategoryRows($branches): array
+    private function branchCategoryRows($branches, Carbon $from, Carbon $to, string $period): array
     {
-        $month = Carbon::now()->format('F');
-        $year = Carbon::now()->year;
         $response = [];
 
         foreach ($this->categories as $category) {
             $rows = [];
 
             foreach ($branches as $branch) {
-                $target = Target::where('branch_id', $branch->id)
-                    ->where('month', $month)
-                    ->where('year', $year)
-                    ->where('category', $category)
-                    ->value('monthly_target') ?? 0;
-
-                $achieved = $this->achievedQtyForBranch($branch->name, $category);
-                $percentage = $target > 0 ? min(100, round(($achieved / $target) * 100)) : 0;
+                $targetRecord = $this->findBranchTarget((int) $branch->id, $category);
+                $target = $this->resolveBranchCategoryTarget($targetRecord, $period);
+                $isAssigned = $target > 0;
+                $achieved = $isAssigned
+                    ? min($target, $this->achievedQtyForBranch($branch->name, $category, $from, $to))
+                    : null;
+                $percentage = $isAssigned ? min(100, round(($achieved / $target) * 100)) : null;
 
                 $rows[] = [
                     'branch_id' => $branch->id,
                     'branch_name' => $branch->name,
-                    'target' => $target,
+                    'is_assigned' => $isAssigned,
+                    'target' => $isAssigned ? $target : null,
                     'achieved' => $achieved,
-                    'achievement_percentage' => $percentage,
-                    'remaining_percentage' => 100 - $percentage,
+                    'achievement_percentage' => $percentage ?? -1,
+                    'remaining_percentage' => $isAssigned ? (100 - $percentage) : null,
                 ];
             }
 
@@ -344,43 +546,37 @@ class ReportingController extends Controller
         return $response;
     }
 
-    private function peerBranchCategoryRows($branches, int $yourBranchId, string $selectedCategory = 'overall'): array
+    private function peerBranchCategoryRows($branches, int $yourBranchId, string $selectedCategory, Carbon $from, Carbon $to, string $period): array
     {
-        $month = Carbon::now()->format('F');
-        $year = Carbon::now()->year;
         $rows = [];
 
         foreach ($branches as $branchItem) {
             if ($selectedCategory === 'overall') {
-                $target = Target::where('branch_id', $branchItem->id)
-                    ->whereIn('category', $this->categories)
-                    ->where('month', $month)
-                    ->where('year', $year)
-                    ->sum('monthly_target');
-
-                $achieved = 0;
+                $target = 0;
+                $achievedRaw = 0;
                 foreach ($this->categories as $category) {
-                    $achieved += $this->achievedQtyForBranch($branchItem->name, $category);
+                    $targetRecord = $this->findBranchTarget((int) $branchItem->id, $category);
+                    $target += $this->resolveBranchCategoryTarget($targetRecord, $period);
+                    $achievedRaw += $this->achievedQtyForBranch($branchItem->name, $category, $from, $to);
                 }
             } else {
-                $target = Target::where('branch_id', $branchItem->id)
-                    ->where('category', $selectedCategory)
-                    ->where('month', $month)
-                    ->where('year', $year)
-                    ->value('monthly_target') ?? 0;
-
-                $achieved = $this->achievedQtyForBranch($branchItem->name, $selectedCategory);
+                $targetRecord = $this->findBranchTarget((int) $branchItem->id, $selectedCategory);
+                $target = $this->resolveBranchCategoryTarget($targetRecord, $period);
+                $achievedRaw = $this->achievedQtyForBranch($branchItem->name, $selectedCategory, $from, $to);
             }
 
-            $achievement = $target > 0 ? min(100, round(($achieved / $target) * 100)) : 0;
+            $isAssigned = $target > 0;
+            $achieved = $isAssigned ? min($target, $achievedRaw) : null;
+            $achievement = $isAssigned ? min(100, round(($achieved / $target) * 100)) : null;
 
             $rows[] = [
                 'branch_id' => $branchItem->id,
                 'branch' => $branchItem->name,
-                'target' => $target,
+                'is_assigned' => $isAssigned,
+                'target' => $isAssigned ? $target : null,
                 'achieved' => $achieved,
-                'achievement' => $achievement,
-                'remaining' => 100 - $achievement,
+                'achievement' => $achievement ?? -1,
+                'remaining' => $isAssigned ? (100 - $achievement) : null,
             ];
         }
 
@@ -443,7 +639,7 @@ class ReportingController extends Controller
         ];
     }
 
-    private function staffComparisonByBranches($branches): array
+    private function staffComparisonByBranches($branches, Carbon $from, Carbon $to, string $period): array
     {
         $response = [];
 
@@ -451,48 +647,68 @@ class ReportingController extends Controller
             $response[] = [
                 'branch_id' => $branch->id,
                 'branch_name' => $branch->name,
-                'staff' => $this->staffComparisonForBranch($branch),
+                'staff' => $this->staffComparisonForBranch($branch, $from, $to, $period),
             ];
         }
 
         return $response;
     }
 
-    private function staffComparisonForBranch(Branch $branch): array
+    private function staffComparisonForBranch(Branch $branch, Carbon $from, Carbon $to, string $period): array
     {
         $commissionRate = Commission::where('role', 'sales_staff')->value('commission') ?? 0;
         $staffList = SaleStaff::where('branch_id', $branch->id)->get();
         $staffData = [];
 
         foreach ($staffList as $staff) {
-            $target = AssignedTarget::where('user_id', $staff->id)->sum('target');
-            $achieved = SaleItem::where('salesperson_code', $staff->employee_id)->sum('quantity');
-            $saleAmount = SaleItem::where('salesperson_code', $staff->employee_id)
-                ->selectRaw('SUM(quantity * price) as total')
-                ->value('total') ?? 0;
+            $monthlyAssigned = 0;
+            foreach ($this->getStaffMonthTargets($staff->id) as $assignedTarget) {
+                $monthlyAssigned += max(0, (float) $assignedTarget->target);
+            }
 
-            $percentage = $target > 0 ? min(100, round(($achieved / $target) * 100)) : 0;
+            $target = $this->resolveStaffPeriodTarget($monthlyAssigned, $branch, $period);
+            $isAssigned = $target > 0;
+
+            $saleItems = SaleItem::where('salesperson_code', $staff->employee_id)
+                ->whereHas('sale', function ($q) use ($from, $to, $branch) {
+                    $q->where('shop_name', $branch->name)
+                        ->whereBetween('date', [$from, $to]);
+                })
+                ->get(['quantity', 'price']);
+
+            $achievedRaw = (float) $saleItems->sum(function ($item) {
+                return max(0, (float) $item->quantity);
+            });
+
+            $saleAmount = (float) $saleItems->sum(function ($item) {
+                return max(0, (float) $item->quantity) * max(0, (float) $item->price);
+            });
+
+            $achieved = $isAssigned ? min($target, $achievedRaw) : null;
+            $percentage = $isAssigned ? min(100, round(($achieved / $target) * 100)) : null;
 
             $staffData[] = [
                 'staff_id' => $staff->id,
                 'name' => $staff->name,
-                'target' => $target,
+                'is_assigned' => $isAssigned,
+                'target' => $isAssigned ? $target : null,
                 'achieved' => $achieved,
-                'remaining' => max($target - $achieved, 0),
-                'achievement_percentage' => $percentage,
-                'remaining_percentage' => 100 - $percentage,
-                'commission' => round(($saleAmount * $commissionRate) / 100, 2),
+                'remaining' => $isAssigned ? max($target - $achieved, 0) : null,
+                'achievement_percentage' => $percentage ?? -1,
+                'remaining_percentage' => $isAssigned ? (100 - $percentage) : null,
+                'commission' => $isAssigned ? round(($saleAmount * $commissionRate) / 100, 2) : 0,
             ];
         }
 
         return $this->rankBy($staffData, 'achievement_percentage');
     }
 
-    private function achievedQtyForBranch(string $branchName, string $category): int
+    private function achievedQtyForBranch(string $branchName, string $category, Carbon $from, Carbon $to): int
     {
         $achieved = 0;
-        $items = SaleItem::whereHas('sale', function ($q) use ($branchName) {
-            $q->where('shop_name', $branchName);
+        $items = SaleItem::whereHas('sale', function ($q) use ($branchName, $from, $to) {
+            $q->where('shop_name', $branchName)
+                ->whereBetween('date', [$from, $to]);
         })->get();
 
         foreach ($items as $item) {

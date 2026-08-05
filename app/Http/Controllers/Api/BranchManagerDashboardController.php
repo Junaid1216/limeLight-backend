@@ -85,10 +85,12 @@ class BranchManagerDashboardController extends Controller
         $monthlyTarget = $targets->sum('monthly_target');
         $achieved = 0;
 
-        $saleItems = SaleItem::whereHas('sale', function ($q) use ($branch) {
+        $monthStart = Carbon::now()->startOfMonth()->toDateString();
+        $monthEnd = Carbon::now()->endOfMonth()->toDateString();
+
+        $saleItems = SaleItem::whereHas('sale', function ($q) use ($branch, $monthStart, $monthEnd) {
             $q->where('shop_name', $branch->name)
-                ->whereMonth('date', Carbon::now()->month)
-                ->whereYear('date', Carbon::now()->year);
+                ->whereBetween('date', [$monthStart, $monthEnd]);
         })->get();
 
         foreach ($targets as $target) {
@@ -124,11 +126,18 @@ class BranchManagerDashboardController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Commission
+        | Commission (same rule as /branch-manager-commission API)
+        | Based on current-month achieved units:
+        | - target met (100%+) → achieved × 10
+        | - otherwise          → achieved × 5
         |--------------------------------------------------------------------------
         */
 
-        $commission = round($achieved * 0.05, 2);
+        $commission = 0;
+        if ($monthlyTarget > 0) {
+            $achievementRatio = ($achieved / $monthlyTarget) * 100;
+            $commission = (int) round($achieved * ($achievementRatio >= 100 ? 10 : 5));
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -137,12 +146,8 @@ class BranchManagerDashboardController extends Controller
         */
 
         $achievedPercentage = $monthlyTarget > 0
-            ? round(($achieved / $monthlyTarget) * 100, 2)
+            ? (int) min(100, round(($achieved / $monthlyTarget) * 100))
             : 0;
-
-        if ($achievedPercentage > 100) {
-            $achievedPercentage = 100;
-        }
 
         $remainingPercentage = 100 - $achievedPercentage;
 
@@ -150,9 +155,9 @@ class BranchManagerDashboardController extends Controller
             'status' => 200,
             'message' => 'Dashboard loaded successfully',
             'data' => [
-                'branch_monthly_target' => $monthlyTarget,
-                'achieved' => $achieved,
-                'remaining' => $remaining,
+                'branch_monthly_target' => (int) $monthlyTarget,
+                'achieved' => (int) $achieved,
+                'remaining' => (int) $remaining,
                 'commission' => $commission,
                 'achieved_percentage' => $achievedPercentage,
                 'remaining_percentage' => $remainingPercentage
@@ -324,6 +329,8 @@ class BranchManagerDashboardController extends Controller
         */
 
         $weekly = [];
+        $weeklyActual = [];
+        $weeklyOverAchieved = [];
 
         $monthStart = Carbon::now()->startOfMonth();
         $monthEnd   = Carbon::now()->endOfMonth();
@@ -363,11 +370,11 @@ class BranchManagerDashboardController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | Weekly Achieved (actual products sold — not capped by weekly target)
+            | Weekly Achieved (actual + capped)
             |--------------------------------------------------------------------------
             */
 
-            $weekAchieved = 0;
+            $weekAchievedActual = 0;
 
             $weekItems = SaleItem::whereHas('sale', function ($q) use (
                 $branch,
@@ -402,7 +409,7 @@ class BranchManagerDashboardController extends Controller
                     )
                 ) {
 
-                    $weekAchieved += $qty;
+                    $weekAchievedActual += $qty;
 
                 }
 
@@ -410,11 +417,27 @@ class BranchManagerDashboardController extends Controller
 
             /*
             |--------------------------------------------------------------------------
+            | Cap weekly achieved at weekly target
+            | week_N is % of monthly_target → pieces = monthly * week% / 100
+            | Keep actual + over-achieved separately for each week
+            |--------------------------------------------------------------------------
+            */
+
+            $weekPercent = (float) ($target->{'week_' . $i} ?? 0);
+            $weekTargetPieces = ($target->monthly_target * $weekPercent) / 100;
+            $weekAchievedCapped = $weekTargetPieces > 0
+                ? min($weekAchievedActual, $weekTargetPieces)
+                : 0;
+
+            /*
+            |--------------------------------------------------------------------------
             | Store Weekly Performance
             |--------------------------------------------------------------------------
             */
 
-            $weekly["week{$i}"] = $weekAchieved;
+            $weekly["week{$i}"] = $weekAchievedCapped;
+            $weeklyActual["week{$i}"] = $weekAchievedActual;
+            $weeklyOverAchieved["week{$i}"] = max(0, $weekAchievedActual - $weekTargetPieces);
 
         }
 
@@ -440,18 +463,35 @@ class BranchManagerDashboardController extends Controller
             'achievement_percentage' => $percentage,
 
             'weekly_targets' => [
-                'week1' => $target->week_1,
-                'week2' => $target->week_2,
-                'week3' => $target->week_3,
-                'week4' => $target->week_4,
+                'week1' => round(($target->monthly_target * (float) $target->week_1) / 100, 2),
+                'week2' => round(($target->monthly_target * (float) $target->week_2) / 100, 2),
+                'week3' => round(($target->monthly_target * (float) $target->week_3) / 100, 2),
+                'week4' => round(($target->monthly_target * (float) $target->week_4) / 100, 2),
             ],
 
+            // Capped at weekly target
             'weekly_performance' => [
                 'week1' => $weekly['week1'],
                 'week2' => $weekly['week2'],
                 'week3' => $weekly['week3'],
                 'week4' => $weekly['week4'],
-            ]
+            ],
+
+            // Actual achieved (can be above target)
+            'weekly_actual_performance' => [
+                'week1' => $weeklyActual['week1'],
+                'week2' => $weeklyActual['week2'],
+                'week3' => $weeklyActual['week3'],
+                'week4' => $weeklyActual['week4'],
+            ],
+
+            // Extra above weekly target (0 if not exceeded)
+            'weekly_over_achieved' => [
+                'week1' => $weeklyOverAchieved['week1'],
+                'week2' => $weeklyOverAchieved['week2'],
+                'week3' => $weeklyOverAchieved['week3'],
+                'week4' => $weeklyOverAchieved['week4'],
+            ],
         ];
 
             }

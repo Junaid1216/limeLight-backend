@@ -18,7 +18,7 @@
                                             <label for="role">Role</label>
                                             <select name="role" id="role" class="form-control" required>
                                                 <option value="" disabled {{ empty($role) ? 'selected' : '' }}>Select Role</option>
-                                                {{-- <option value="asm" {{ $role === 'asm' ? 'selected' : '' }}>Area Sales Manager</option> --}}
+                                                <option value="asm" {{ $role === 'asm' ? 'selected' : '' }}>Area Sales Manager</option>
                                                 <option value="branch_manager" {{ $role === 'branch_manager' ? 'selected' : '' }}>Branch Manager</option>
                                                 <option value="sale_staff" {{ $role === 'sale_staff' ? 'selected' : '' }}>Sales Staff</option>
                                             </select>
@@ -34,9 +34,9 @@
                                         <div class="col-md-3 mb-3">
                                             <label for="period">Period</label>
                                             <select name="period" id="period" class="form-control" required>
-                                                <option value="day" {{ $period === 'day' ? 'selected' : '' }}>Current Day</option>
-                                                <option value="week" {{ $period === 'week' ? 'selected' : '' }}>Current Week</option>
-                                                <option value="month" {{ $period === 'month' ? 'selected' : '' }}>Current Month</option>
+                                                <!-- <option value="daily" {{ $period === 'daily' ? 'selected' : '' }}>Daily</option> -->
+                                                <option value="weekly" {{ $period === 'weekly' ? 'selected' : '' }}>Weekly</option>
+                                                <option value="monthly" {{ $period === 'monthly' ? 'selected' : '' }}>Monthly</option>
                                             </select>
                                         </div>
 

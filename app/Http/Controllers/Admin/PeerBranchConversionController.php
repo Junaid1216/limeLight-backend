@@ -60,10 +60,30 @@ class PeerBranchConversionController extends Controller
             ];
         }
 
-        return [
-            Carbon::today()->subDays(6)->startOfDay(),
-            Carbon::today()->endOfDay(),
-        ];
+        // weekly — current week within the current month (week1: 1–7, week2: 8–14, ...)
+        return $this->currentWeekRangeOfMonth();
+    }
+
+    private function currentWeekRangeOfMonth(): array
+    {
+        $now = Carbon::now();
+        $monthStart = $now->copy()->startOfMonth()->startOfDay();
+        $monthEnd = $now->copy()->endOfMonth()->endOfDay();
+
+        for ($i = 1; $i <= 4; $i++) {
+            $start = $monthStart->copy()->addDays(($i - 1) * 7)->startOfDay();
+            $end = $start->copy()->addDays(6)->endOfDay();
+
+            if ($i === 4 || $end->gt($monthEnd)) {
+                $end = $monthEnd->copy()->endOfDay();
+            }
+
+            if ($now->between($start, $end)) {
+                return [$start, $end];
+            }
+        }
+
+        return [$monthStart, $monthEnd];
     }
 
     private function branchConversionRows($branches, Carbon $from, Carbon $to): array

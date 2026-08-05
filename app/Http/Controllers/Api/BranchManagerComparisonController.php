@@ -533,19 +533,11 @@ public function branchComparison(Request $request)
             (int) $year,
         ]));
 
-        $approved = AssignedTarget::where('user_id', $staffId)
-            ->whereIn('month', $monthVariants)
-            ->whereIn('year', $yearVariants)
-            ->where('status', 'approved')
-            ->get();
-
-        if ($approved->isNotEmpty()) {
-            return $approved;
-        }
-
+        // Only admin-approved targets count as assigned
         return AssignedTarget::where('user_id', $staffId)
             ->whereIn('month', $monthVariants)
             ->whereIn('year', $yearVariants)
+            ->where('status', 'approved')
             ->get();
     }
 }
