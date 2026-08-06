@@ -107,7 +107,7 @@
 <div class="col-md-6">
     <div class="form-group">
         <label>Category <span style="color: red;">*</span></label>
-        <select name="category" class="form-control" required>
+        <select name="category" id="category" class="form-control" required disabled>
             <option value="">Select Category</option>
             <option value="garments">Garments</option>
             <option value="unstitched">Unstitched</option>
@@ -212,15 +212,55 @@ $('#targetForm').submit(function(e){
 
 <script>
 
-const targets = @json(
-    \App\Models\Target::select(
-        'branch_id',
-        'month',
-        'year'
-    )->get()
-);
+const targets = @json($targets);
+const branches = @json($branchOptions);
+const currentYear = {{ (int) date('Y') }};
+const allCategories = [
+    { value: 'garments', label: 'Garments' },
+    { value: 'unstitched', label: 'Unstitched' },
+    { value: 'accessories', label: 'Accessories' }
+];
 
-const currentYear = {{ date('Y') }};
+function assignedCategoriesFor(branchId, month) {
+    return targets
+        .filter(function (target) {
+            return String(target.branch_id) === String(branchId)
+                && target.month == month
+                && String(target.year) == String(currentYear);
+        })
+        .map(function (target) {
+            return String(target.category).toLowerCase();
+        });
+}
+
+function branchHasAvailableCategory(branchId, month) {
+    const assigned = assignedCategoriesFor(branchId, month);
+    return allCategories.some(function (cat) {
+        return assigned.indexOf(cat.value) === -1;
+    });
+}
+
+function refreshCategoryOptions() {
+    const month = $('#month').val();
+    const branchId = $('#branch_id').val();
+    let options = '<option value="">Select Category</option>';
+
+    if (!month || !branchId) {
+        $('#category').html(options).prop('disabled', true);
+        return;
+    }
+
+    const assigned = assignedCategoriesFor(branchId, month);
+
+    allCategories.forEach(function (cat) {
+        const isAssigned = assigned.indexOf(cat.value) !== -1;
+        const disabledAttr = isAssigned ? ' disabled' : '';
+        const label = isAssigned ? (cat.label + ' (Already Assigned)') : cat.label;
+        options += '<option value="' + cat.value + '"' + disabledAttr + '>' + label + '</option>';
+    });
+
+    $('#category').html(options).prop('disabled', false);
+}
 
 </script>
 
@@ -229,6 +269,7 @@ const currentYear = {{ date('Y') }};
 $(document).ready(function () {
 
     // MONTH CHANGE
+    // Show branch if at least one category is still free for month + year
     $('#month').on('change', function () {
 
         let selectedMonth = $(this).val();
@@ -239,36 +280,18 @@ $(document).ready(function () {
         $('#designation_id').html(
             '<option value="">Select Designation</option>'
         );
-
         $('#designation_id').prop('disabled', true);
+        refreshCategoryOptions();
 
         if (selectedMonth !== '') {
 
             $('#branch_id').prop('disabled', false);
 
-            @foreach($branches as $branch)
-
-                // check if branch already has target
-                let alreadyAssigned{{ $branch->id }} = targets.some(function(target){
-
-                    return target.branch_id == {{ $branch->id }}
-                        && target.month == selectedMonth
-                        && target.year == currentYear;
-
-                });
-
-                // show only unassigned branches
-                if(!alreadyAssigned{{ $branch->id }}){
-
-                    branchHtml += `
-                        <option value="{{ $branch->id }}">
-                            {{ $branch->name }}
-                        </option>
-                    `;
-
+            branches.forEach(function (branch) {
+                if (branchHasAvailableCategory(branch.id, selectedMonth)) {
+                    branchHtml += '<option value="' + branch.id + '">' + branch.name + '</option>';
                 }
-
-            @endforeach
+            });
 
             $('#branch_id').html(branchHtml);
 
@@ -288,6 +311,9 @@ $(document).ready(function () {
     $('#branch_id').on('change', function () {
 
         let branchId = $(this).val();
+
+        // Hide categories already used for same month + branch + year
+        refreshCategoryOptions();
 
         if (branchId !== '') {
 

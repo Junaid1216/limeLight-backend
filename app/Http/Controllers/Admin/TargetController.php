@@ -22,7 +22,15 @@ class TargetController extends Controller
     {
         $branchManagers = BranchManager::all();
         $branches = Branch::all();
-        return view('admin.target.create', compact('branchManagers', 'branches'));
+        $targets = Target::select('branch_id', 'month', 'year', 'category')->get();
+        $branchOptions = $branches->map(function ($branch) {
+            return [
+                'id' => $branch->id,
+                'name' => $branch->name,
+            ];
+        })->values();
+
+        return view('admin.target.create', compact('branchManagers', 'branches', 'targets', 'branchOptions'));
     }
     public function store(Request $request)
 {
@@ -43,6 +51,17 @@ class TargetController extends Controller
         'branch_id.required' => 'The Branch field is required.',
     ]);
 
+    $exists = Target::where('branch_id', $request->branch_id)
+        ->where('month', $request->month)
+        ->where('year', $request->year)
+        ->where('category', $request->category)
+        ->exists();
+
+    if ($exists) {
+        return back()
+            ->withInput()
+            ->with('error', 'Target already exists for this Month, Branch and Category.');
+    }
 
     Target::create([
         // 'branch_manager_id' => $request->branch_manager_id,
