@@ -23,7 +23,7 @@ class UpdateNotificationsForQueueFlow extends Migration
             }
         });
 
-        foreach (['sale_staffs', 'branch_managers', 'area_sale_managers'] as $tableName) {
+        foreach (['sale_staff', 'branch_managers', 'area_sale_managers'] as $tableName) {
             if (Schema::hasTable($tableName) && !Schema::hasColumn($tableName, 'fcm_token')) {
                 Schema::table($tableName, function (Blueprint $table) {
                     $table->text('fcm_token')->nullable();
@@ -49,7 +49,7 @@ class UpdateNotificationsForQueueFlow extends Migration
             }
         });
 
-        foreach (['sale_staffs', 'branch_managers', 'area_sale_managers'] as $tableName) {
+        foreach (['sale_staff', 'branch_managers', 'area_sale_managers'] as $tableName) {
             if (Schema::hasTable($tableName) && Schema::hasColumn($tableName, 'fcm_token')) {
                 Schema::table($tableName, function (Blueprint $table) {
                     $table->dropColumn('fcm_token');

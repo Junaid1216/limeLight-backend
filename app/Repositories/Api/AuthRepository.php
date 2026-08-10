@@ -116,9 +116,20 @@ class AuthRepository implements AuthRepositoryInterface
         }
 
         $token = $user->createToken($request['type'] . '_token')->plainTextToken;
+
+        $branchId = null;
+        if ($request['type'] === 'staff' || $request['type'] === 'manager') {
+            $branchId = $user->branch_id ?? null;
+        }
+
+        // Ensure branch_id is always present in user payload for app use
+        $user->branch_id = $branchId;
+
         return [
             'user' => $user,
-            'token' => $token
+            'token' => $token,
+            'branch_id' => $branchId,
+            'role' => $request['type'],
         ];
     }
     public function sendOtp(array $request)

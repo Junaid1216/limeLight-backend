@@ -157,8 +157,7 @@ class AuthController extends Controller
                 $branch = \App\Models\Branch::find($user->branch_id);
 
                 $user->branch_name = $branch->name ?? null;
-
-                unset($user->branch_id);
+                // Keep branch_id for app (survey report etc.)
             }
 
             // ASM → Region Name
@@ -167,8 +166,7 @@ class AuthController extends Controller
                 $region = \App\Models\Region::find($user->region_id);
 
                 $user->region_name = $region->name ?? null;
-
-                unset($user->region_id);
+                $user->branch_id = null;
             }
 
             unset($user->designation_id);

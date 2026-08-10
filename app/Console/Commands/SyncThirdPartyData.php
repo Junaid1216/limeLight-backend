@@ -8,7 +8,9 @@ use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\TransactionSummary;
 use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Console\Command;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -21,11 +23,28 @@ class SyncThirdPartyData extends Command
 
     protected $description = 'Sync Sales, Footfall and Transaction data';
 
+    private const SALES_API_URL = 'http://202.141.241.251:96/api/Sales/GetSalesByDateV2';
+    private const SALES_APP_ID = 10;
+    private const SALES_APP_KEY = 'jgiDwu3HwlKgbS9qorWmsVzhJ4oP0s5j';
+
+    /** Connect timeout: fail fast if host unreachable */
+    private const SALES_CONNECT_TIMEOUT = 20;
+
+    /** Response timeout: large payloads can be slow */
+    private const SALES_TIMEOUT = 300;
+
+    /** Retry attempts for transient failures (timeouts / 5xx) */
+    private const SALES_MAX_ATTEMPTS = 3;
+
+    /** Base delay (ms) between retries; doubles each attempt */
+    private const SALES_RETRY_BASE_MS = 2000;
+
     private $yofiToken = 'cf8bc76e6373efe9027e1ee50ddb483fa46458c7';
 
     public function handle()
     {
         $startedAt = microtime(true);
+        $hadSalesFailure = false;
 
         $branches = Branch::whereNotNull('branch_id')
             ->where('branch_id', '!=', '')
@@ -41,31 +60,32 @@ class SyncThirdPartyData extends Command
         $this->info('Date range: ' . $start->toDateTimeString() . ' -> ' . $end->toDateTimeString());
         $this->info('Branches: ' . $branches->count());
 
-        // Sales API returns all shops for same date range — fetch once (biggest speed win)
-        $this->info('Fetching sales (once for all branches)...');
-        $salesByShop = $this->fetchSalesGroupedByShop($start, $end);
+        // Day-wise sales fetch: smaller payloads, partial success if one day fails
+        $this->info('Fetching sales (day-wise with retry)...');
+        $salesResult = $this->fetchSalesGroupedByShop($start, $end);
+        $salesByShop = $salesResult['grouped'];
+        $hadSalesFailure = $salesResult['had_failure'];
 
-        // Parallel transaction + footfall requests
+        if ($hadSalesFailure && empty($salesByShop)) {
+            $this->error('Sales sync failed for all requested days.');
+        } elseif ($hadSalesFailure) {
+            $this->warn('Sales sync partially failed — some days were skipped.');
+        }
+
         $this->info('Syncing transaction + footfall...');
         $this->syncTransactionAndFootfall($branches, $start, $end);
 
-        // Save sales per branch from already-fetched data
         $this->info('Saving sales...');
-        $branchesByName = $branches->keyBy('name');
-
-        foreach ($branchesByName as $shopName => $branch) {
-            $shopSales = $salesByShop[$shopName] ?? [];
-
-            if (empty($shopSales)) {
-                continue;
-            }
-
-            $this->saveBranchSales($shopSales);
-            $this->info("Sales saved: {$shopName} (" . count($shopSales) . ' invoices)');
-        }
+        $savedInvoices = $this->persistSales($branches, $salesByShop);
+        $this->info("Sales invoices saved: {$savedInvoices}");
 
         $seconds = round(microtime(true) - $startedAt, 2);
         $this->info("Completed in {$seconds}s");
+
+        // Non-zero exit when sales completely failed (cron monitors can alert)
+        if ($hadSalesFailure && $savedInvoices === 0) {
+            return 1;
+        }
 
         return 0;
     }
@@ -90,60 +110,161 @@ class SyncThirdPartyData extends Command
             ];
         }
 
-        // Default: 3-day window so a missed/failed cron run still gets backfilled
+        // Daily cron default: today only (use --days=3 for backfill)
         return [
-            Carbon::today()->subDays(2)->startOfDay(),
+            Carbon::today()->startOfDay(),
             Carbon::today()->endOfDay(),
         ];
     }
 
-    private function fetchSalesGroupedByShop($start, $end): array
+    /**
+     * Fetch sales day-by-day, merge by shop name.
+     *
+     * @return array{grouped: array<string, array>, had_failure: bool}
+     */
+    private function fetchSalesGroupedByShop(Carbon $start, Carbon $end): array
     {
-        try {
-            $response = Http::timeout(120)->get('http://202.141.241.251:96/api/Sales/GetSalesByDateV2', [
-                'AppId' => 10,
-                'AppKey' => 'jgiDwu3HwlKgbS9qorWmsVzhJ4oP0s5j',
-                'SaleFromDate' => $start->format('Y-m-d H:i:s'),
-                'SaleToDate' => $end->format('Y-m-d H:i:s'),
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('Sales sync request failed', ['error' => $e->getMessage()]);
-            $this->error('Sales API failed: ' . $e->getMessage());
-            return [];
-        }
-
-        if (!$response->successful()) {
-            Log::error('Sales sync HTTP error', [
-                'status' => $response->status(),
-                'body' => substr($response->body(), 0, 500),
-            ]);
-            $this->error('Sales API HTTP ' . $response->status());
-            return [];
-        }
-
-        $data = $response->json();
-        $salesList = $data['SalesList'] ?? [];
-
-        if (empty($salesList)) {
-            $this->warn('No sales returned from API');
-            return [];
-        }
-
         $grouped = [];
+        $hadFailure = false;
+        $totalInvoices = 0;
 
-        foreach ($salesList as $sale) {
-            $shopName = $sale['ShopName'] ?? null;
+        $period = CarbonPeriod::create($start->copy()->startOfDay(), $end->copy()->startOfDay());
 
-            if (!$shopName) {
+        foreach ($period as $day) {
+            /** @var Carbon $day */
+            $dayStart = $day->copy()->startOfDay();
+            $dayEnd = $day->copy()->endOfDay();
+            $label = $dayStart->toDateString();
+
+            $this->line("  → Sales for {$label}");
+
+            $salesList = $this->fetchSalesForDateRange($dayStart, $dayEnd);
+
+            if ($salesList === null) {
+                $hadFailure = true;
+                $this->error("  ✗ Failed: {$label}");
                 continue;
             }
 
-            $grouped[$shopName][] = $sale;
+            if (empty($salesList)) {
+                $this->warn("  · No sales for {$label}");
+                continue;
+            }
+
+            foreach ($salesList as $sale) {
+                $shopName = $sale['ShopName'] ?? null;
+                if (!$shopName) {
+                    continue;
+                }
+                $grouped[$shopName][] = $sale;
+            }
+
+            $count = count($salesList);
+            $totalInvoices += $count;
+            $this->info("  ✓ {$label}: {$count} invoices");
         }
 
-        $this->info('Sales invoices fetched: ' . count($salesList));
+        $this->info("Sales invoices fetched (total): {$totalInvoices}");
 
-        return $grouped;
+        return [
+            'grouped' => $grouped,
+            'had_failure' => $hadFailure,
+        ];
+    }
+
+    /**
+     * Call Sales API with connect timeout, response timeout, and exponential backoff retries.
+     * Returns SalesList array, empty array when API returns no rows, or null on hard failure.
+     */
+    private function fetchSalesForDateRange(Carbon $start, Carbon $end): ?array
+    {
+        $params = [
+            'AppId' => self::SALES_APP_ID,
+            'AppKey' => self::SALES_APP_KEY,
+            'SaleFromDate' => $start->format('Y-m-d H:i:s'),
+            'SaleToDate' => $end->format('Y-m-d H:i:s'),
+        ];
+
+        $lastError = null;
+
+        for ($attempt = 1; $attempt <= self::SALES_MAX_ATTEMPTS; $attempt++) {
+            try {
+                $response = Http::connectTimeout(self::SALES_CONNECT_TIMEOUT)
+                    ->timeout(self::SALES_TIMEOUT)
+                    ->get(self::SALES_API_URL, $params);
+
+                if ($response->successful()) {
+                    $salesList = $response->json('SalesList') ?? [];
+                    return is_array($salesList) ? $salesList : [];
+                }
+
+                $lastError = 'HTTP ' . $response->status();
+                Log::warning('Sales API non-success response', [
+                    'attempt' => $attempt,
+                    'status' => $response->status(),
+                    'from' => $params['SaleFromDate'],
+                    'to' => $params['SaleToDate'],
+                    'body' => substr($response->body(), 0, 500),
+                ]);
+
+                // Retry only on server errors / rate limits
+                if ($response->status() < 500 && $response->status() !== 429) {
+                    break;
+                }
+            } catch (ConnectionException $e) {
+                $lastError = $e->getMessage();
+                Log::warning('Sales API connection/timeout', [
+                    'attempt' => $attempt,
+                    'from' => $params['SaleFromDate'],
+                    'to' => $params['SaleToDate'],
+                    'error' => $lastError,
+                ]);
+            } catch (\Throwable $e) {
+                $lastError = $e->getMessage();
+                Log::error('Sales API unexpected error', [
+                    'attempt' => $attempt,
+                    'from' => $params['SaleFromDate'],
+                    'to' => $params['SaleToDate'],
+                    'error' => $lastError,
+                ]);
+                break;
+            }
+
+            if ($attempt < self::SALES_MAX_ATTEMPTS) {
+                $delayMs = self::SALES_RETRY_BASE_MS * (2 ** ($attempt - 1));
+                $this->warn("  retry {$attempt}/" . self::SALES_MAX_ATTEMPTS . " in " . ($delayMs / 1000) . 's...');
+                usleep($delayMs * 1000);
+            }
+        }
+
+        Log::error('Sales sync request failed after retries', [
+            'from' => $params['SaleFromDate'],
+            'to' => $params['SaleToDate'],
+            'error' => $lastError,
+        ]);
+        $this->error('Sales API failed: ' . ($lastError ?? 'unknown error'));
+
+        return null;
+    }
+
+    private function persistSales($branches, array $salesByShop): int
+    {
+        $saved = 0;
+        $branchesByName = $branches->keyBy('name');
+
+        foreach ($branchesByName as $shopName => $branch) {
+            $shopSales = $salesByShop[$shopName] ?? [];
+            if (empty($shopSales)) {
+                continue;
+            }
+
+            $this->saveBranchSales($shopSales);
+            $count = count($shopSales);
+            $saved += $count;
+            $this->info("Sales saved: {$shopName} ({$count} invoices)");
+        }
+
+        return $saved;
     }
 
     private function saveBranchSales(array $sales): void
@@ -200,7 +321,6 @@ class SyncThirdPartyData extends Command
 
     private function syncTransactionAndFootfall($branches, $start, $end): void
     {
-        // Process in chunks to avoid too many parallel connections
         foreach ($branches->chunk(10) as $chunk) {
             $responses = Http::pool(function ($pool) use ($chunk, $start, $end) {
                 $requests = [];

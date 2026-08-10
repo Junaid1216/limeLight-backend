@@ -27,6 +27,28 @@
 
                                     <div class="col-md-6">
                                         <div class="form-group">
+                                            <label>Survey Title <span style="color: red;">*</span></label>
+                                            <input type="text"
+                                                   name="title"
+                                                   id="title"
+                                                   class="form-control"
+                                                   placeholder="e.g. Price Satisfaction Survey"
+                                                   required>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Status <span style="color: red;">*</span></label>
+                                            <select name="status" id="status" class="form-control" required>
+                                                <option value="active">Active</option>
+                                                <option value="inactive">Inactive</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <div class="form-group">
                                             <label>Role <span style="color: red;">*</span></label>
 
                                              <select name="roles[]"
@@ -34,10 +56,6 @@
                                                     class="form-control select2"
                                                     multiple
                                                     required>
-
-                                                <option value="">
-                                                    Select Role
-                                                </option>
 
                                                 <option value="asm">
                                                     Area Sale Manager
@@ -63,11 +81,11 @@
                                                    name="question"
                                                    id="question"
                                                    class="form-control"
+                                                   placeholder="First question (options: High / Fair / Low)"
                                                    required>
                                         </div>
                                     </div>
-                                     
-`
+
                                 </div>
 
                             </div>
@@ -97,7 +115,9 @@
                                     <tr>
                                         <th>Sr.</th>
                                         <th>Role</th>
+                                        <th>Title</th>
                                         <th>Question</th>
+                                        <th>Status</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
@@ -105,21 +125,42 @@
                                 <tbody>
 
                                     @foreach($surveys as $survey)
+                                    @php
+                                        $questionList = $survey->questions->pluck('question')->filter()->values();
+                                        if ($questionList->isEmpty() && !empty($survey->question)) {
+                                            $questionList = collect([$survey->question]);
+                                        }
+                                    @endphp
 
                                     <tr>
 
                                         <td>{{ $loop->iteration }}</td>
 
                                         <td>
-                                                 {{ collect($survey->roles)
+                                            {{ collect($survey->roles ?? [])
                                                 ->map(fn($role) => ucwords(str_replace('_',' ',$role)))
-                                                ->implode(', ') }}
-                                            
+                                                ->implode(', ') ?: '-' }}
                                         </td>
 
-                                        <td>{{ $survey->question }}</td>
+                                        <td>{{ $survey->title ?: '-' }}</td>
 
-                                      
+                                        <td style="min-width: 260px; max-width: 420px;">
+                                            @if($questionList->isEmpty())
+                                                <span class="text-muted">-</span>
+                                            @else
+                                                <ol class="mb-0 pl-3" style="padding-left: 18px;">
+                                                    @foreach($questionList as $qText)
+                                                        <li style="margin-bottom: 4px;">{{ $qText }}</li>
+                                                    @endforeach
+                                                </ol>
+                                            @endif
+                                        </td>
+
+                                        <td>
+                                            <span class="badge badge-{{ ($survey->status ?? 'active') === 'active' ? 'success' : 'secondary' }}">
+                                                {{ strtoupper($survey->status ?? 'active') }}
+                                            </span>
+                                        </td>
 
                                         <td>
                                             <div class="d-flex align-items-center" style="gap: 6px;">
@@ -129,11 +170,22 @@
                                                 type="button"
                                                 class="btn btn-primary btn-sm editVideo"
                                                 data-id="{{ $survey->id }}"
+                                                data-title="{{ $survey->title }}"
+                                                data-status="{{ $survey->status ?? 'active' }}"
                                                 data-roles='@json($survey->roles)'
                                                 data-question="{{ $survey->question }}">
 
                                                 <i class="fa fa-edit"></i>
 
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                class="btn btn-info btn-sm addQuestionBtn"
+                                                data-id="{{ $survey->id }}"
+                                                data-title="{{ $survey->title }}"
+                                                title="Add Question">
+                                                <i class="fa fa-plus"></i>
                                             </button>
                                             @endif
 
@@ -189,21 +241,97 @@ $(document).ready(function(){
     $('#table_id_events').DataTable();
 
     $('.editVideo').click(function(){
-        console.log($(this).data('id'))
         $('#video_id').val($(this).data('id'));
+        $('#title').val($(this).data('title'));
+        $('#status').val($(this).data('status'));
 
         let roles = $(this).attr('data-roles');
-
-        roles = JSON.parse(roles);
-
+        roles = JSON.parse(roles || '[]');
         $('#roles').val(roles).trigger('change');
-
         $('#question').val($(this).data('question'));
 
         $('html, body').animate({
             scrollTop: 0
         }, 300);
+    });
 
+    $('.addQuestionBtn').click(function(){
+        let surveyId = $(this).data('id');
+        let title = $(this).data('title') || 'Survey';
+
+        Swal.fire({
+            title: '<div style="font-size:20px;font-weight:600;color:#2c3e50;">Add Question</div>',
+            html:
+                '<div style="text-align:left;padding:4px 6px 0;">' +
+                    '<div style="display:inline-block;background:#e8f5f2;color:#2f6f64;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:600;margin-bottom:14px;">' +
+                        (title || 'Survey') +
+                    '</div>' +
+                    '<label style="display:block;font-size:13px;font-weight:600;color:#445;margin-bottom:6px;">Question <span style="color:#c0392b;">*</span></label>' +
+                    '<textarea id="swal-question" rows="3" placeholder="Type your question here..." ' +
+                        'style="width:100%;border:1px solid #d7e0e6;border-radius:10px;padding:12px 14px;font-size:14px;resize:vertical;outline:none;box-sizing:border-box;"></textarea>' +
+                    '<div style="margin-top:12px;background:#f7fafb;border:1px dashed #c9d8d4;border-radius:10px;padding:10px 12px;">' +
+                        '<div style="font-size:12px;color:#5a6a72;margin-bottom:8px;">Default options will be added automatically:</div>' +
+                        '<span style="display:inline-block;background:#fff;border:1px solid #dbe7e4;border-radius:16px;padding:3px 10px;font-size:12px;margin-right:6px;color:#2f6f64;">High</span>' +
+                        '<span style="display:inline-block;background:#fff;border:1px solid #dbe7e4;border-radius:16px;padding:3px 10px;font-size:12px;margin-right:6px;color:#2f6f64;">Fair</span>' +
+                        '<span style="display:inline-block;background:#fff;border:1px solid #dbe7e4;border-radius:16px;padding:3px 10px;font-size:12px;color:#2f6f64;">Low</span>' +
+                    '</div>' +
+                '</div>',
+            width: 520,
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: 'Add Question',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#609b90',
+            cancelButtonColor: '#95a5a6',
+            customClass: {
+                popup: 'survey-add-question-modal'
+            },
+            didOpen: () => {
+                const input = document.getElementById('swal-question');
+                if (input) {
+                    input.focus();
+                    input.addEventListener('focus', function () {
+                        this.style.borderColor = '#609b90';
+                        this.style.boxShadow = '0 0 0 3px rgba(96,155,144,0.15)';
+                    });
+                    input.addEventListener('blur', function () {
+                        this.style.borderColor = '#d7e0e6';
+                        this.style.boxShadow = 'none';
+                    });
+                }
+            },
+            preConfirm: () => {
+                const q = (document.getElementById('swal-question').value || '').trim();
+                if (!q) {
+                    Swal.showValidationMessage('Question is required');
+                    return false;
+                }
+                return q;
+            }
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+
+            $.ajax({
+                url: '{{ url("admin/surveys") }}/' + surveyId + '/add-question',
+                method: 'POST',
+                data: {
+                    _token: '{{ csrf_token() }}',
+                    question: result.value
+                },
+                success: function() {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Added!',
+                        text: 'Question added with High / Fair / Low options.',
+                        timer: 1500,
+                        showConfirmButton: false
+                    }).then(() => location.reload());
+                },
+                error: function() {
+                    Swal.fire('Error!', 'Failed to add question.', 'error');
+                }
+            });
+        });
     });
 
 });

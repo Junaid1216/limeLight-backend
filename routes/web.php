@@ -235,7 +235,7 @@ Route::delete('/training_module-destroy/{id}',[TrainingVideoController::class, '
 // ############ Survey ##################
 Route::get('/surveys', [SurveyController::class, 'index'])->name('survey.index')->middleware('check.permission:Surveys,view');
 Route::post('/surveys/store', [SurveyController::class, 'store'])->name('survey.store')->middleware('check.permission:Surveys,create');
-Route::post('/surveys/update/{id}', [SurveyController::class, 'update'])->name('survey.update')->middleware('check.permission:Surveys,edit');
+Route::post('/surveys/{id}/add-question', [SurveyController::class, 'addQuestion'])->name('survey.add.question')->middleware('check.permission:Surveys,edit');
 Route::delete('/surveys/destroy/{id}', [SurveyController::class, 'delete'])->name('survey.destroy')->middleware('check.permission:Surveys,delete');
 
 

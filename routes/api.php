@@ -71,11 +71,19 @@ Route::middleware('auth:sanctum')->group(function () {
     // ASM Feedback
     Route::post('/asm-feedback', [FeedBackController::class, 'asmfeedback']);
 
-    // survey questions
+    // Survey (legacy + Figma app flow)
     Route::get('/survey-questions/{role}', [SurveyController::class, 'getSurveyQuestions']);
+    Route::get('/surveys', [SurveyController::class, 'index']);
+    Route::get('/surveys/{id}', [SurveyController::class, 'show']);
+    Route::post('/surveys/{id}/submit', [SurveyController::class, 'submit']);
+    Route::get('/surveys/{id}/report', [SurveyController::class, 'report']);
+    Route::get('/surveys/{id}/responses', [SurveyController::class, 'responses']);
+    // ASM branches for survey report selection
+    Route::get('/asm-branches', [SurveyController::class, 'asmBranches']);
 
     //Get training videos
     Route::get('/training-videos', [TrainingVideoController::class, 'getTrainingVideos']);
+    Route::post('/training-videos/{id}/status', [TrainingVideoController::class, 'updateStatus']);
 
     // Announcements (filters: all|hr|performance|promotions)
     Route::get('/announcements', [AnnouncementController::class, 'index']);

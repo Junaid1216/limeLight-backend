@@ -8,8 +8,10 @@ use App\Models\AreaSaleManager;
 use App\Models\BranchManager;
 use App\Models\SaleStaff;
 use App\Models\TrainingVideo;
+use App\Models\TrainingVideoCompletion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
 
 class TrainingVideoController extends Controller
 {
@@ -211,4 +213,125 @@ class TrainingVideoController extends Controller
     }
 }
 
+    /**
+     * Mark a training module video as complete for the logged-in user (any role).
+     * POST /api/training-videos/{id}/status
+     * Body: { "status": "complete" }
+     */
+    public function updateStatus(Request $request, $id)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return ResponseHelper::error(null, 'User not authenticated', 'unauthorized', 401);
+        }
+
+        try {
+            $request->validate([
+                'status' => 'required|string|in:complete',
+            ]);
+        } catch (ValidationException $e) {
+            return ResponseHelper::error($e->errors(), 'Validation failed', 'validation_error', 422);
+        }
+
+        $identity = $this->resolveUserIdentity($user);
+        if (!$identity['user_type'] || !$identity['role']) {
+            return ResponseHelper::error(null, 'Unsupported user type', 'forbidden', 403);
+        }
+
+        $training = TrainingVideo::find($id);
+        if (!$training) {
+            return ResponseHelper::error(null, 'Training module not found', 'not_found', 404);
+        }
+
+        $roles = $training->roles ?? [];
+        if (!is_array($roles)) {
+            $roles = json_decode($roles, true) ?: [];
+        }
+
+        if (!in_array($identity['role'], $roles, true)) {
+            return ResponseHelper::error(null, 'This training is not assigned to your role', 'forbidden', 403);
+        }
+
+        $completion = TrainingVideoCompletion::updateOrCreate(
+            [
+                'training_video_id' => $training->id,
+                'user_type' => $identity['user_type'],
+                'user_id' => $identity['user_id'],
+            ],
+            [
+                'status' => 'complete',
+                'completed_at' => now(),
+            ]
+        );
+
+        return ResponseHelper::success([
+            'training_video_id' => $training->id,
+            'user_type' => $identity['user_type'],
+            'user_id' => $identity['user_id'],
+            'role' => $identity['role'],
+            'status' => $completion->status,
+            'completed_at' => optional($completion->completed_at)->toDateTimeString(),
+        ], 'Training status saved successfully', '200', 200);
+    }
+
+    private function resolveUserIdentity($user): array
+    {
+        if ($user instanceof SaleStaff) {
+            return [
+                'user_type' => 'sale_staff',
+                'user_id' => $user->id,
+                'role' => 'sales_staff',
+            ];
+        }
+
+        if ($user instanceof BranchManager) {
+            return [
+                'user_type' => 'branch_manager',
+                'user_id' => $user->id,
+                'role' => 'branch_manager',
+            ];
+        }
+
+        if ($user instanceof AreaSaleManager) {
+            return [
+                'user_type' => 'area_sale_manager',
+                'user_id' => $user->id,
+                'role' => 'asm',
+            ];
+        }
+
+        // Fallback: resolve by employee_id like existing training APIs
+        if (!empty($user->employee_id)) {
+            if (AreaSaleManager::where('employee_id', $user->employee_id)->exists()) {
+                $asm = AreaSaleManager::where('employee_id', $user->employee_id)->first();
+                return [
+                    'user_type' => 'area_sale_manager',
+                    'user_id' => $asm->id,
+                    'role' => 'asm',
+                ];
+            }
+            if (BranchManager::where('employee_id', $user->employee_id)->exists()) {
+                $bm = BranchManager::where('employee_id', $user->employee_id)->first();
+                return [
+                    'user_type' => 'branch_manager',
+                    'user_id' => $bm->id,
+                    'role' => 'branch_manager',
+                ];
+            }
+            if (SaleStaff::where('employee_id', $user->employee_id)->exists()) {
+                $staff = SaleStaff::where('employee_id', $user->employee_id)->first();
+                return [
+                    'user_type' => 'sale_staff',
+                    'user_id' => $staff->id,
+                    'role' => 'sales_staff',
+                ];
+            }
+        }
+
+        return [
+            'user_type' => null,
+            'user_id' => null,
+            'role' => null,
+        ];
+    }
 }
