@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Helpers\CommissionHelper;
 use App\Http\Controllers\Controller;
 use App\Models\AreaSaleManager;
 use App\Models\AssignedTarget;
 use App\Models\Branch;
 use App\Models\BranchManager;
-use App\Models\Commission;
 use App\Models\FootfallDailySummary;
 use App\Models\Region;
 use App\Models\Sale;
@@ -342,6 +342,12 @@ class ReportingController extends Controller
             ? min(100, round(($achieved / $periodTarget) * 100, 2))
             : null;
 
+        $saleItems = SaleItem::with('sale')
+            ->whereHas('sale', function ($q) use ($branch, $from, $to) {
+                $q->where('shop_name', $branch->name)
+                    ->whereBetween('date', [$from, $to]);
+            })->get(['invoice_id', 'quantity', 'price']);
+
         return [
             'type' => 'branch_manager',
             'summary' => [
@@ -352,7 +358,7 @@ class ReportingController extends Controller
                 'remaining' => $isAssigned ? max($periodTarget - $achieved, 0) : null,
                 'achieved_percentage' => $achievedPercentage,
                 'remaining_percentage' => $isAssigned ? max(0, 100 - min(100, $achievedPercentage)) : null,
-                'commission' => $isAssigned ? round($achieved * 0.05, 2) : 0,
+                'commission' => $isAssigned ? CommissionHelper::sumProducts('branch_manager', $saleItems) : 0,
             ],
             'staff_comparison' => $this->staffComparisonForBranch($branch, $from, $to, $period),
             'branch_category' => $this->peerBranchCategoryRows($peerBranches, $branch->id, $branchCategoryFilter, $from, $to, $period),
@@ -656,7 +662,6 @@ class ReportingController extends Controller
 
     private function staffComparisonForBranch(Branch $branch, Carbon $from, Carbon $to, string $period): array
     {
-        $commissionRate = Commission::where('role', 'sales_staff')->value('commission') ?? 0;
         $staffList = SaleStaff::where('branch_id', $branch->id)->get();
         $staffData = [];
 
@@ -669,19 +674,16 @@ class ReportingController extends Controller
             $target = $this->resolveStaffPeriodTarget($monthlyAssigned, $branch, $period);
             $isAssigned = $target > 0;
 
-            $saleItems = SaleItem::where('salesperson_code', $staff->employee_id)
+            $saleItems = SaleItem::with('sale')
+                ->where('salesperson_code', $staff->employee_id)
                 ->whereHas('sale', function ($q) use ($from, $to, $branch) {
                     $q->where('shop_name', $branch->name)
                         ->whereBetween('date', [$from, $to]);
                 })
-                ->get(['quantity', 'price']);
+                ->get(['invoice_id', 'quantity', 'price']);
 
             $achievedRaw = (float) $saleItems->sum(function ($item) {
                 return max(0, (float) $item->quantity);
-            });
-
-            $saleAmount = (float) $saleItems->sum(function ($item) {
-                return max(0, (float) $item->quantity) * max(0, (float) $item->price);
             });
 
             $achieved = $isAssigned ? min($target, $achievedRaw) : null;
@@ -696,7 +698,7 @@ class ReportingController extends Controller
                 'remaining' => $isAssigned ? max($target - $achieved, 0) : null,
                 'achievement_percentage' => $percentage ?? -1,
                 'remaining_percentage' => $isAssigned ? (100 - $percentage) : null,
-                'commission' => $isAssigned ? round(($saleAmount * $commissionRate) / 100, 2) : 0,
+                'commission' => $isAssigned ? CommissionHelper::sumProducts('sales_staff', $saleItems) : 0,
             ];
         }
 

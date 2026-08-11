@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Helpers\CommissionHelper;
 use App\Http\Controllers\Controller;
-use App\Models\Commission;
 use App\Models\SaleItem;
 use App\Models\Target;
 use Carbon\Carbon;
@@ -88,10 +88,11 @@ class BranchManagerDashboardController extends Controller
         $monthStart = Carbon::now()->startOfMonth()->toDateString();
         $monthEnd = Carbon::now()->endOfMonth()->toDateString();
 
-        $saleItems = SaleItem::whereHas('sale', function ($q) use ($branch, $monthStart, $monthEnd) {
-            $q->where('shop_name', $branch->name)
-                ->whereBetween('date', [$monthStart, $monthEnd]);
-        })->get();
+        $saleItems = SaleItem::with('sale')
+            ->whereHas('sale', function ($q) use ($branch, $monthStart, $monthEnd) {
+                $q->where('shop_name', $branch->name)
+                    ->whereBetween('date', [$monthStart, $monthEnd]);
+            })->get();
 
         foreach ($targets as $target) {
             $category = strtolower(trim($target->category));
@@ -126,18 +127,13 @@ class BranchManagerDashboardController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Commission (same rule as /branch-manager-commission API)
-        | Based on current-month achieved units:
-        | - target met (100%+) → achieved × 10
-        | - otherwise          → achieved × 5
+        | Commission: per product (qty × price × rate@sale_date), then sum
         |--------------------------------------------------------------------------
         */
 
-        $commission = 0;
-        if ($monthlyTarget > 0) {
-            $achievementRatio = ($achieved / $monthlyTarget) * 100;
-            $commission = (int) round($achieved * ($achievementRatio >= 100 ? 10 : 5));
-        }
+        $commission = $monthlyTarget > 0
+            ? CommissionHelper::sumProducts('branch_manager', $saleItems)
+            : 0;
 
         /*
         |--------------------------------------------------------------------------
@@ -523,9 +519,6 @@ class BranchManagerDashboardController extends Controller
         $month = Carbon::now()->format('F');
         $year = Carbon::now()->year;
 
-        $commissionRate = Commission::where('role', 'branch_manager')
-        ->value('commission') ?? 0;
-
         $categories = [
             'garments',
             'unstitched',
@@ -549,7 +542,8 @@ class BranchManagerDashboardController extends Controller
             $achieved = 0;
                     $commission = 0;
 
-                    $saleItems = SaleItem::whereHas('sale', function ($q) use ($branch) {
+                    $saleItems = SaleItem::with('sale')
+                        ->whereHas('sale', function ($q) use ($branch) {
                         $q->where('shop_name', $branch->name)
                             ->whereMonth('date', Carbon::now()->month)
                             ->whereYear('date', Carbon::now()->year);
@@ -561,7 +555,7 @@ class BranchManagerDashboardController extends Controller
 
                         $qty = max(0, $item->quantity);
 
-                        $saleAmount = $item->price * $qty;
+                        $saleDate = optional($item->sale)->date;
 
                         if (
                             $category == 'garments' &&
@@ -588,7 +582,7 @@ class BranchManagerDashboardController extends Controller
 
                             $achieved += $qty;
 
-                            $commission += ($saleAmount * $commissionRate) / 100;
+                            $commission += CommissionHelper::forProduct('branch_manager', $qty, $item->price, $saleDate);
 
                         }
 
@@ -602,7 +596,7 @@ class BranchManagerDashboardController extends Controller
 
                             $achieved += $qty;
 
-                            $commission += ($saleAmount * $commissionRate) / 100;
+                            $commission += CommissionHelper::forProduct('branch_manager', $qty, $item->price, $saleDate);
 
                         }
 
@@ -622,33 +616,20 @@ class BranchManagerDashboardController extends Controller
 
                             $achieved += $qty;
 
-                            $commission += ($saleAmount * $commissionRate) / 100;
+                            $commission += CommissionHelper::forProduct('branch_manager', $qty, $item->price, $saleDate);
 
                         }
                     }
 
             /*
             |--------------------------------------------------------------------------
-            | Commission
+            | Commission = product sales (qty × price) × admin branch_manager %
+            | Only when category target is assigned.
             |--------------------------------------------------------------------------
             */
 
-            $commission = 0;
-
-            if($target->monthly_target > 0){
-
-                $percentage = ($achieved / $target->monthly_target) * 100;
-
-                if($percentage >= 100){
-
-                    // Example calculation
-                    $commission = $achieved * 10;
-
-                }else{
-
-                    $commission = round($achieved * 5);
-
-                }
+            if ((float) $target->monthly_target <= 0) {
+                $commission = 0;
             }
 
             $response[] = [

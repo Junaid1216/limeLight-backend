@@ -17,36 +17,89 @@ class TrainingVideoController extends Controller
 {
     public function getTrainingVideos(Request $request)
     {
-         try {
+        try {
+            $user = Auth::user();
+            if (!$user) {
+                return ResponseHelper::error(null, 'User not authenticated', 'unauthorized', 401);
+            }
 
-        $role = $request->role;
+            $identity = $this->resolveUserIdentity($user);
+            if (!$identity['role']) {
+                return ResponseHelper::error(null, 'User role could not be determined', 'forbidden', 403);
+            }
 
-        $videos = TrainingVideo::whereJsonContains('roles', $role)
-                    ->select(
-                        'id',
-                        'title',
-                        'description',
-                        'video_url'
-                    )
-                    ->latest()
-                    ->get();
+            try {
+                $request->validate([
+                    'status' => 'required|string|in:new,pending,completed',
+                ]);
+            } catch (ValidationException $e) {
+                return ResponseHelper::error($e->errors(), 'Validation failed', 'validation_error', 422);
+            }
 
-        return ResponseHelper::success(
-            $videos,
-            'Training videos retrieved successfully',
-            '200',
-            200
-        );
+            $status = strtolower($request->get('status'));
+            $role = $identity['role'];
 
-    } catch (\Exception $e) {
+            $query = TrainingVideo::whereJsonContains('roles', $role);
 
-        return ResponseHelper::error(
-            $e->getMessage(),
-            'An error occurred while retrieving training videos',
-            'error',
-            500
-        );
-    }
+            if ($status === 'new') {
+                $query->whereDate('created_at', now()->toDateString());
+            }
+
+            $videos = $query->latest()->get();
+
+            // Ensure assigned videos have default pending status for this user
+            $this->ensurePendingStatuses($videos, $identity);
+
+            $completions = TrainingVideoCompletion::where('user_type', $identity['user_type'])
+                ->where('user_id', $identity['user_id'])
+                ->whereIn('training_video_id', $videos->pluck('id'))
+                ->get()
+                ->keyBy('training_video_id');
+
+            $data = $videos->map(function (TrainingVideo $video) use ($completions, $status) {
+                $completion = $completions->get($video->id);
+                $userStatus = $this->normalizeUserStatus($completion);
+
+                return [
+                    'id' => $video->id,
+                    'title' => $video->title,
+                    'description' => $video->description,
+                    'video_url' => $video->video_url,
+                    'training_type' => $video->training_type,
+                    'status' => $userStatus,
+                    'completed_at' => $completion && $userStatus === 'completed'
+                        ? optional($completion->completed_at)->toDateTimeString()
+                        : null,
+                    'created_at' => optional($video->created_at)->toDateTimeString(),
+                ];
+            })->filter(function (array $row) use ($status) {
+                if ($status === 'new') {
+                    return true; // already filtered by created_at date
+                }
+                if ($status === 'pending') {
+                    return $row['status'] === 'pending';
+                }
+                if ($status === 'completed') {
+                    return $row['status'] === 'completed';
+                }
+
+                return true;
+            })->values();
+
+            return ResponseHelper::success(
+                $data,
+                'Training videos retrieved successfully',
+                '200',
+                200
+            );
+        } catch (\Exception $e) {
+            return ResponseHelper::error(
+                $e->getMessage(),
+                'An error occurred while retrieving training videos',
+                'error',
+                500
+            );
+        }
     }
 
      public function trainingProduct(Request $request)
@@ -216,7 +269,7 @@ class TrainingVideoController extends Controller
     /**
      * Mark a training module video as complete for the logged-in user (any role).
      * POST /api/training-videos/{id}/status
-     * Body: { "status": "complete" }
+     * Body: { "status": "completed" }  (also accepts "complete")
      */
     public function updateStatus(Request $request, $id)
     {
@@ -227,7 +280,7 @@ class TrainingVideoController extends Controller
 
         try {
             $request->validate([
-                'status' => 'required|string|in:complete',
+                'status' => 'required|string|in:complete,completed',
             ]);
         } catch (ValidationException $e) {
             return ResponseHelper::error($e->errors(), 'Validation failed', 'validation_error', 422);
@@ -259,7 +312,7 @@ class TrainingVideoController extends Controller
                 'user_id' => $identity['user_id'],
             ],
             [
-                'status' => 'complete',
+                'status' => 'completed',
                 'completed_at' => now(),
             ]
         );
@@ -269,9 +322,62 @@ class TrainingVideoController extends Controller
             'user_type' => $identity['user_type'],
             'user_id' => $identity['user_id'],
             'role' => $identity['role'],
-            'status' => $completion->status,
+            'status' => 'completed',
             'completed_at' => optional($completion->completed_at)->toDateTimeString(),
         ], 'Training status saved successfully', '200', 200);
+    }
+
+    /**
+     * Create pending rows for assigned videos that this user has not tracked yet.
+     */
+    private function ensurePendingStatuses($videos, array $identity): void
+    {
+        if ($videos->isEmpty()) {
+            return;
+        }
+
+        $existingIds = TrainingVideoCompletion::where('user_type', $identity['user_type'])
+            ->where('user_id', $identity['user_id'])
+            ->whereIn('training_video_id', $videos->pluck('id'))
+            ->pluck('training_video_id')
+            ->all();
+
+        $now = now();
+        $rows = [];
+
+        foreach ($videos as $video) {
+            if (in_array($video->id, $existingIds, true)) {
+                continue;
+            }
+
+            $rows[] = [
+                'training_video_id' => $video->id,
+                'user_type' => $identity['user_type'],
+                'user_id' => $identity['user_id'],
+                'status' => 'pending',
+                'completed_at' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        if (!empty($rows)) {
+            TrainingVideoCompletion::insert($rows);
+        }
+    }
+
+    private function normalizeUserStatus($completion): string
+    {
+        if (!$completion) {
+            return 'pending';
+        }
+
+        $status = strtolower((string) $completion->status);
+        if (in_array($status, ['complete', 'completed'], true)) {
+            return 'completed';
+        }
+
+        return 'pending';
     }
 
     private function resolveUserIdentity($user): array

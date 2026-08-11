@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Helpers\CommissionHelper;
 use App\Http\Controllers\Controller;
 use App\Models\AssignedTarget;
 use App\Models\Branch;
-use App\Models\Commission;
 use App\Models\SaleItem;
 use App\Models\SaleStaff;
 use App\Models\Target;
@@ -42,9 +42,6 @@ class BranchManagerComparisonController extends Controller
         $month = $now->format('F');
         $year = (string) $now->year;
 
-        $commissionRate = (float) (Commission::where('role', 'sales_staff')
-            ->value('commission') ?? 0);
-
         $categoryMappings = $this->categoryMappings();
         $staffs = SaleStaff::where('branch_id', $branch->id)->get();
         $response = [];
@@ -73,7 +70,8 @@ class BranchManagerComparisonController extends Controller
                 'accessories' => 0,
             ];
 
-            $saleItems = SaleItem::where('salesperson_code', (string) $staff->employee_id)
+            $saleItems = SaleItem::with('sale')
+                ->where('salesperson_code', (string) $staff->employee_id)
                 ->whereHas('sale', function ($q) use ($branch, $from, $to) {
                     $q->where('shop_name', $branch->name)
                         ->whereBetween('date', [
@@ -81,9 +79,9 @@ class BranchManagerComparisonController extends Controller
                             $to->toDateString(),
                         ]);
                 })
-                ->get(['category', 'quantity', 'price']);
+                ->get(['invoice_id', 'category', 'quantity', 'price']);
 
-            $saleAmount = 0;
+            $commissionTotal = 0;
 
             foreach ($saleItems as $item) {
                 $qty = max(0, (float) $item->quantity);
@@ -94,7 +92,12 @@ class BranchManagerComparisonController extends Controller
                         $achieved[$category] += $qty;
 
                         if ($assignedTargets[$category] > 0) {
-                            $saleAmount += $qty * max(0, (float) $item->price);
+                            $commissionTotal += CommissionHelper::forProduct(
+                                'sales_staff',
+                                $qty,
+                                $item->price,
+                                optional($item->sale)->date
+                            );
                         }
                         break;
                     }
@@ -116,7 +119,7 @@ class BranchManagerComparisonController extends Controller
             $remainingPercentage = $totalTarget > 0 ? (100 - $percentage) : 0;
 
             $commission = $totalTarget > 0
-                ? round($saleAmount * ($commissionRate / 100), 2)
+                ? round($commissionTotal, 2)
                 : 0;
 
             $response[] = [

@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Helpers\CommissionHelper;
 use App\Http\Controllers\Controller;
 use App\Models\AreaSaleManager;
 use App\Models\AssignedTarget;
 use App\Models\Branch;
-use App\Models\Commission;
 use App\Models\FootfallDailySummary;
 use App\Models\Region;
 use App\Models\Sale;
@@ -672,9 +672,6 @@ public function staffComparison(Request $request)
         ], 401);
     }
 
-    $commissionRate = (float) (Commission::where('role', 'sales_staff')
-        ->value('commission') ?? 0);
-
     $month = Carbon::now()->format('F');
     $year = (string) Carbon::now()->year;
     $monthStart = Carbon::now()->startOfMonth()->toDateString();
@@ -769,7 +766,8 @@ public function staffComparison(Request $request)
             |--------------------------------------------------------------------------
             */
 
-            $saleItems = SaleItem::where(
+            $saleItems = SaleItem::with('sale')
+                ->where(
                     'salesperson_code',
                     $staff->employee_id
                 )
@@ -795,7 +793,7 @@ public function staffComparison(Request $request)
                 'accessories' => 0
             ];
 
-            $categorySaleAmount = [
+            $categoryCommission = [
                 'garments' => 0,
                 'unstitched' => 0,
                 'accessories' => 0
@@ -807,7 +805,12 @@ public function staffComparison(Request $request)
                 $itemCategory = strtolower(trim($item->category));
 
                 $qty = max(0, (float) $item->quantity);
-                $lineAmount = $qty * max(0, (float) $item->price);
+                $lineCommission = CommissionHelper::forProduct(
+                    'sales_staff',
+                    $qty,
+                    $item->price,
+                    optional($item->sale)->date
+                );
 
 
                 /*
@@ -819,7 +822,7 @@ public function staffComparison(Request $request)
                 if (in_array($itemCategory, $garmentsCategories)) {
 
                     $categoryAchieved['garments'] += $qty;
-                    $categorySaleAmount['garments'] += $lineAmount;
+                    $categoryCommission['garments'] += $lineCommission;
 
                 }
 
@@ -833,7 +836,7 @@ public function staffComparison(Request $request)
                 elseif (in_array($itemCategory, $unstitchedCategories)) {
 
                     $categoryAchieved['unstitched'] += $qty;
-                    $categorySaleAmount['unstitched'] += $lineAmount;
+                    $categoryCommission['unstitched'] += $lineCommission;
 
                 }
 
@@ -847,7 +850,7 @@ public function staffComparison(Request $request)
                 elseif (in_array($itemCategory, $accessoriesCategories)) {
 
                     $categoryAchieved['accessories'] += $qty;
-                    $categorySaleAmount['accessories'] += $lineAmount;
+                    $categoryCommission['accessories'] += $lineCommission;
 
                 }
             }
@@ -859,7 +862,7 @@ public function staffComparison(Request $request)
             |--------------------------------------------------------------------------
             */
 
-            $achievedSaleAmount = 0;
+            $achievedCommission = 0;
 
             foreach ($categories as $category) {
                 $rawQty = $categoryAchieved[$category];
@@ -871,7 +874,8 @@ public function staffComparison(Request $request)
 
                     // Commission only on achieved portion of sales
                     if ($rawQty > 0) {
-                        $achievedSaleAmount += $categorySaleAmount[$category] * ($cappedQty / $rawQty);
+                        $ratio = $cappedQty / $rawQty;
+                        $achievedCommission += $categoryCommission[$category] * $ratio;
                     }
                 } else {
                     $categoryAchieved[$category] = 0;
@@ -926,7 +930,7 @@ public function staffComparison(Request $request)
             */
 
             $commission = $isAssigned
-                ? (int) round($achievedSaleAmount * ($commissionRate / 100))
+                ? (int) round($achievedCommission)
                 : 0;
 
 

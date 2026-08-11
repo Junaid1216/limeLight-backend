@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Helpers\CommissionHelper;
 use App\Http\Controllers\Controller;
 use App\Models\AreaSaleManager;
 use App\Models\Branch;
 use App\Models\BranchManager;
-use App\Models\Commission;
 use App\Models\Sale;
 use App\Models\SaleStaff;
 use App\Models\Slab;
@@ -198,11 +198,6 @@ class SalesHistoryController extends Controller
             return [[], $this->emptySummary()];
         }
 
-        $commissionRate = Commission::where('role', 'branch_manager')->value('commission');
-        if ($commissionRate === null) {
-            $commissionRate = 5;
-        }
-
         $sales = $this->applySaleDateFilter(
             Sale::with('items')->where('shop_name', $branch->name),
             $from,
@@ -220,8 +215,12 @@ class SalesHistoryController extends Controller
             });
             $staffNames = $sale->items->pluck('salesperson_name')->filter()->unique()->implode(', ');
             $staffCodes = $sale->items->pluck('salesperson_code')->filter()->unique()->implode(', ');
-            $amount = (float) $sale->net_total;
-            $commission = round(($amount * $commissionRate) / 100, 2);
+            // Product sales amount (qty × price) — commission base
+            $amount = $sale->items->sum(function ($item) {
+                return max(0, (float) $item->price) * max(0, (int) $item->quantity);
+            });
+            // Per product × rate at sale date, then sum
+            $commission = CommissionHelper::sumProducts('branch_manager', $sale->items, $sale->date);
 
             $rows[] = [
                 'invoice_id' => $sale->invoice_id,
@@ -250,8 +249,6 @@ class SalesHistoryController extends Controller
             return [[], $this->emptySummary()];
         }
 
-        $commissionRate = Commission::where('role', 'sales_staff')->value('commission') ?? 0;
-
         $sales = $this->applySaleDateFilter(
             Sale::with(['items' => function ($q) use ($staff) {
                 $q->where('salesperson_code', $staff->employee_id);
@@ -275,7 +272,7 @@ class SalesHistoryController extends Controller
                 return (float) $item->price * max(0, (int) $item->quantity);
             });
 
-            $commission = round(($amount * $commissionRate) / 100, 2);
+            $commission = CommissionHelper::sumProducts('sales_staff', $sale->items, $sale->date);
 
             $slab = Slab::where('from_amount', '<=', $sale->net_total)
                 ->where('to_amount', '>=', $sale->net_total)

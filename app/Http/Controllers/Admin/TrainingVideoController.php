@@ -3,7 +3,11 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AreaSaleManager;
+use App\Models\BranchManager;
+use App\Models\SaleStaff;
 use App\Models\TrainingVideo;
+use App\Models\TrainingVideoCompletion;
 use Illuminate\Http\Request;
 
 class TrainingVideoController extends Controller
@@ -158,7 +162,75 @@ class TrainingVideoController extends Controller
 
         $training->save();
 
-    return back()->with('success','Training Module Saved Successfully');
+        $this->seedPendingStatusForRoles($training);
+
+        return back()->with('success','Training Module Saved Successfully');
+}
+
+/**
+ * When a training is assigned to roles, default user status = pending.
+ */
+private function seedPendingStatusForRoles(TrainingVideo $training): void
+{
+    $roles = $training->roles ?? [];
+    if (!is_array($roles) || empty($roles)) {
+        return;
+    }
+
+    $users = [];
+
+    if (in_array('sales_staff', $roles, true)) {
+        foreach (SaleStaff::query()->select('id')->cursor() as $staff) {
+            $users[] = ['user_type' => 'sale_staff', 'user_id' => $staff->id];
+        }
+    }
+
+    if (in_array('branch_manager', $roles, true)) {
+        foreach (BranchManager::query()->select('id')->cursor() as $manager) {
+            $users[] = ['user_type' => 'branch_manager', 'user_id' => $manager->id];
+        }
+    }
+
+    if (in_array('asm', $roles, true)) {
+        foreach (AreaSaleManager::query()->select('id')->cursor() as $asm) {
+            $users[] = ['user_type' => 'area_sale_manager', 'user_id' => $asm->id];
+        }
+    }
+
+    if (empty($users)) {
+        return;
+    }
+
+    $existing = TrainingVideoCompletion::where('training_video_id', $training->id)
+        ->get(['user_type', 'user_id'])
+        ->map(function ($row) {
+            return $row->user_type . ':' . $row->user_id;
+        })
+        ->all();
+
+    $now = now();
+    $rows = [];
+
+    foreach ($users as $user) {
+        $key = $user['user_type'] . ':' . $user['user_id'];
+        if (in_array($key, $existing, true)) {
+            continue;
+        }
+
+        $rows[] = [
+            'training_video_id' => $training->id,
+            'user_type' => $user['user_type'],
+            'user_id' => $user['user_id'],
+            'status' => 'pending',
+            'completed_at' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+    }
+
+    foreach (array_chunk($rows, 500) as $chunk) {
+        TrainingVideoCompletion::insert($chunk);
+    }
 }
 
 public function delete($id)

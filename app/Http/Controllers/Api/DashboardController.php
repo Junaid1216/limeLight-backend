@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Helpers\CommissionHelper;
 use App\Http\Controllers\Controller;
 use App\Models\AssignedTarget;
-use App\Models\Commission;
 use App\Models\FootfallDailySummary;
 use App\Models\Sale;
 use App\Models\SaleItem;
@@ -132,13 +132,16 @@ class DashboardController extends Controller
             ],
         ];
 
-        $saleItems = SaleItem::where('salesperson_code', (string) $user->employee_id)
+        $saleItems = SaleItem::with('sale')
+            ->where('salesperson_code', (string) $user->employee_id)
             ->whereHas('sale', function ($q) use ($branch, $monthNum, $year) {
                 $q->where('shop_name', $branch->name)
                     ->whereMonth('date', $monthNum)
                     ->whereYear('date', $year);
             })
-            ->get(['category', 'quantity', 'price']);
+            ->get(['invoice_id', 'category', 'quantity', 'price']);
+
+        $commissionTotal = 0;
 
         foreach ($saleItems as $item) {
             $qty = max(0, (float) $item->quantity);
@@ -149,6 +152,12 @@ class DashboardController extends Controller
                     $sold[$category] += $qty;
                     $totalSale += $qty;
                     $saleAmount += $qty * max(0, (float) $item->price);
+                    $commissionTotal += CommissionHelper::forProduct(
+                        'sales_staff',
+                        $qty,
+                        $item->price,
+                        optional($item->sale)->date
+                    );
                     break;
                 }
             }
@@ -188,11 +197,8 @@ class DashboardController extends Controller
 
         $totalTarget = array_sum($assigned);
 
-        $commissionRate = (float) (Commission::where('role', 'sales_staff')
-            ->value('commission') ?? 0);
-
         $commission = $totalTarget > 0
-            ? round($saleAmount * ($commissionRate / 100), 2)
+            ? round($commissionTotal, 2)
             : 0;
 
         $commissionPercentage = $totalTarget > 0
@@ -336,13 +342,20 @@ class DashboardController extends Controller
             ],
         ];
 
-        $saleItems = SaleItem::where('salesperson_code', (string) $user->employee_id)
+        $saleItems = SaleItem::with('sale')
+            ->where('salesperson_code', (string) $user->employee_id)
             ->whereHas('sale', function ($q) use ($branch, $monthNum, $year) {
                 $q->where('shop_name', $branch->name)
                     ->whereMonth('date', $monthNum)
                     ->whereYear('date', $year);
             })
-            ->get(['category', 'quantity', 'price']);
+            ->get(['invoice_id', 'category', 'quantity', 'price']);
+
+        $commissionByCategory = [
+            'garments' => 0,
+            'unstitched' => 0,
+            'accessories' => 0,
+        ];
 
         foreach ($saleItems as $item) {
             $qty = max(0, (float) $item->quantity);
@@ -353,13 +366,16 @@ class DashboardController extends Controller
                 if (in_array($itemCategory, $mapping, true)) {
                     $achieved[$category] += $qty;
                     $saleAmountByCategory[$category] += $lineAmount;
+                    $commissionByCategory[$category] += CommissionHelper::forProduct(
+                        'sales_staff',
+                        $qty,
+                        $item->price,
+                        optional($item->sale)->date
+                    );
                     break;
                 }
             }
         }
-
-        $commissionRate = (float) (Commission::where('role', 'sales_staff')
-            ->value('commission') ?? 0);
 
         $data = [];
 
@@ -367,7 +383,7 @@ class DashboardController extends Controller
             $sale = min($achieved[$category], $target);
 
             $commission = $target > 0
-                ? round($saleAmountByCategory[$category] * ($commissionRate / 100), 2)
+                ? round($commissionByCategory[$category], 2)
                 : 0;
 
             $data[] = [
@@ -609,9 +625,6 @@ public function staffComparison(Request $request)
         (int) $year,
     ]));
 
-    $commissionRate = (float) (Commission::where('role', 'sales_staff')
-        ->value('commission') ?? 0);
-
     $staffMembers = SaleStaff::where('branch_id', $user->branch_id)->get();
 
     $rows = [];
@@ -660,17 +673,17 @@ public function staffComparison(Request $request)
         |--------------------------------------------------------------------------
         */
 
-        $monthlySaleAmount = (float) (SaleItem::where('salesperson_code', (string) $staff->employee_id)
+        $monthlySaleItems = SaleItem::with('sale')
+            ->where('salesperson_code', (string) $staff->employee_id)
             ->whereHas('sale', function ($q) use ($branchName, $monthNum, $year) {
                 $q->where('shop_name', $branchName)
                     ->whereMonth('date', $monthNum)
                     ->whereYear('date', $year);
             })
-            ->selectRaw('SUM(quantity * price) as total')
-            ->value('total') ?? 0);
+            ->get(['invoice_id', 'quantity', 'price']);
 
         $commission = $target > 0
-            ? round($monthlySaleAmount * ($commissionRate / 100), 2)
+            ? CommissionHelper::sumProducts('sales_staff', $monthlySaleItems)
             : 0;
 
         /*

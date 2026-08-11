@@ -189,8 +189,10 @@ class SyncThirdPartyData extends Command
 
         for ($attempt = 1; $attempt <= self::SALES_MAX_ATTEMPTS; $attempt++) {
             try {
-                $response = Http::connectTimeout(self::SALES_CONNECT_TIMEOUT)
-                    ->timeout(self::SALES_TIMEOUT)
+                $response = Http::withOptions([
+                        'connect_timeout' => self::SALES_CONNECT_TIMEOUT,
+                        'timeout' => self::SALES_TIMEOUT,
+                    ])
                     ->get(self::SALES_API_URL, $params);
 
                 if ($response->successful()) {

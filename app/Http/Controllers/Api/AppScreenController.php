@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Helpers\CommissionHelper;
 use App\Helpers\ResponseHelper;
 use App\Http\Controllers\Controller;
 use App\Models\AreaSaleManager;
 use App\Models\AssignedTarget;
 use App\Models\Branch;
 use App\Models\BranchManager;
-use App\Models\Commission;
 use App\Models\FootfallDailySummary;
 use App\Models\Notification;
 use App\Models\Sale;
@@ -210,8 +210,6 @@ class AppScreenController extends Controller
         $month = Carbon::now()->format('F');
         $year = (string) Carbon::now()->year;
 
-        $commissionRate = (float) (Commission::where('role', 'sales_staff')->value('commission') ?? 0);
-
         $branch = \App\Models\Branch::find($user->branch_id);
         $branchName = $branch->name ?? '';
 
@@ -226,7 +224,8 @@ class AppScreenController extends Controller
                 ->where('status', 'approved')
                 ->sum('target');
 
-            $saleItems = SaleItem::where('salesperson_code', (string) $staff->employee_id)
+            $saleItems = SaleItem::with('sale')
+                ->where('salesperson_code', (string) $staff->employee_id)
                 ->whereHas('sale', function ($q) use ($from, $to, $branchName) {
                     $q->where('shop_name', $branchName)
                         ->whereBetween('date', [
@@ -234,7 +233,7 @@ class AppScreenController extends Controller
                             $to->toDateString(),
                         ]);
                 })
-                ->get(['quantity', 'price']);
+                ->get(['invoice_id', 'quantity', 'price']);
 
             $achieved = (float) $saleItems->sum(function ($item) {
                 return max(0, (float) $item->quantity);
@@ -242,12 +241,8 @@ class AppScreenController extends Controller
 
             $achieved = $target > 0 ? min($achieved, $target) : $achieved;
 
-            $saleAmount = $saleItems->sum(function ($item) {
-                return max(0, (float) $item->quantity) * max(0, (float) $item->price);
-            });
-
             $commission = $target > 0
-                ? round($saleAmount * ($commissionRate / 100), 2)
+                ? CommissionHelper::sumProducts('sales_staff', $saleItems)
                 : 0;
 
             $percentage = $target > 0

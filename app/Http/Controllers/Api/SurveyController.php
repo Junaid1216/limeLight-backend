@@ -70,7 +70,8 @@ class SurveyController extends Controller
                 return [
                     'id' => $survey->id,
                     'title' => $survey->title ?: 'Survey',
-                    'status' => strtoupper($survey->status ?? 'active'),
+                    'status' => strtoupper($survey->status ?? 'active'), // ACTIVE / INACTIVE
+                    'submission_status' => $submitted ? 'submitted' : 'pending',
                     'questions_count' => (int) $questionsCount,
                     'questions_label' => ((int) $questionsCount) . ' Questions',
                     'is_submitted' => $submitted,
@@ -141,6 +142,7 @@ class SurveyController extends Controller
             'id' => $survey->id,
             'title' => $survey->title ?: 'Survey',
             'status' => strtoupper($survey->status ?? 'active'),
+            'submission_status' => $submission ? 'submitted' : 'pending',
             'questions_count' => $questions->count(),
             'is_submitted' => (bool) $submission,
             'questions' => $questions,
