@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\CityController;
 use App\Http\Controllers\Admin\CommissionController;
 use App\Http\Controllers\Admin\ContactController;
 use App\Http\Controllers\Admin\DesignationController;
+use App\Http\Controllers\Admin\DisplayCategoryController;
 use App\Http\Controllers\Admin\FaqController;
 use App\Http\Controllers\Admin\HierarchyController;
 use App\Http\Controllers\Admin\NotificationController;
@@ -231,6 +232,12 @@ Route::get('/training_module',[TrainingVideoController::class, 'index'])->name('
 Route::post('/training_module-store',[TrainingVideoController::class, 'store'])->name('training.video.store')->middleware('check.permission:Training Modules,create');
 Route::post('/training_module-update/{id}',[TrainingVideoController::class, 'update'])->name('training.video.update')->middleware('check.permission:Training Modules,edit');
 Route::delete('/training_module-destroy/{id}',[TrainingVideoController::class, 'delete'])->name('training.video.delete')->middleware('check.permission:Training Modules,delete');
+
+// ############ Display Categories #################
+Route::get('/display-categories', [DisplayCategoryController::class, 'index'])->name('display.category.index')->middleware('check.permission:Display Categories,view');
+Route::post('/display-categories/store', [DisplayCategoryController::class, 'store'])->name('display.category.store')->middleware('check.permission:Display Categories,create');
+Route::post('/display-categories/update/{id}', [DisplayCategoryController::class, 'update'])->name('display.category.update')->middleware('check.permission:Display Categories,edit');
+Route::delete('/display-categories/destroy/{id}', [DisplayCategoryController::class, 'delete'])->name('display.category.delete')->middleware('check.permission:Display Categories,delete');
 
 // ############ Survey ##################
 Route::get('/surveys', [SurveyController::class, 'index'])->name('survey.index')->middleware('check.permission:Surveys,view');

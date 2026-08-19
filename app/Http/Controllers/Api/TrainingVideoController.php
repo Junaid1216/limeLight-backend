@@ -9,6 +9,7 @@ use App\Models\BranchManager;
 use App\Models\SaleStaff;
 use App\Models\TrainingVideo;
 use App\Models\TrainingVideoCompletion;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
@@ -38,11 +39,17 @@ class TrainingVideoController extends Controller
 
             $status = strtolower($request->get('status'));
             $role = $identity['role'];
+            $today = $this->trainingToday();
+            [$todayStartUtc, $todayEndUtc] = $this->trainingTodayUtcBounds();
 
-            $query = TrainingVideo::whereJsonContains('roles', $role);
+            $query = TrainingVideo::whereJsonContains('roles', $role)
+                ->where('training_type', 'customer');
 
             if ($status === 'new') {
-                $query->whereDate('created_at', now()->toDateString());
+                $query->whereBetween('created_at', [$todayStartUtc, $todayEndUtc]);
+            } elseif ($status === 'pending') {
+                // Older incomplete only (today's go under "new")
+                $query->where('created_at', '<', $todayStartUtc);
             }
 
             $videos = $query->latest()->get();
@@ -56,7 +63,7 @@ class TrainingVideoController extends Controller
                 ->get()
                 ->keyBy('training_video_id');
 
-            $data = $videos->map(function (TrainingVideo $video) use ($completions, $status) {
+            $data = $videos->map(function (TrainingVideo $video) use ($completions) {
                 $completion = $completions->get($video->id);
                 $userStatus = $this->normalizeUserStatus($completion);
 
@@ -72,18 +79,8 @@ class TrainingVideoController extends Controller
                         : null,
                     'created_at' => optional($video->created_at)->toDateTimeString(),
                 ];
-            })->filter(function (array $row) use ($status) {
-                if ($status === 'new') {
-                    return true; // already filtered by created_at date
-                }
-                if ($status === 'pending') {
-                    return $row['status'] === 'pending';
-                }
-                if ($status === 'completed') {
-                    return $row['status'] === 'completed';
-                }
-
-                return true;
+            })->filter(function (array $row) use ($status, $today) {
+                return $this->matchesStatusFilter($row, $status, $today);
             })->values();
 
             return ResponseHelper::success(
@@ -105,166 +102,171 @@ class TrainingVideoController extends Controller
      public function trainingProduct(Request $request)
     {
         try {
-
             $user = Auth::user();
-    
-            // Get user's role
-             $role = null;
-
-        // Check ASM
-            if (AreaSaleManager::where('employee_id', $user->employee_id)->exists()) {
-                $role = 'asm';
+            if (!$user) {
+                return ResponseHelper::error(null, 'User not authenticated', 'unauthorized', 401);
             }
 
-            // Check Branch Manager
-            elseif (BranchManager::where('employee_id', $user->employee_id)->exists()) {
-                $role = 'branch_manager';
+            $identity = $this->resolveUserIdentity($user);
+            if (!$identity['role']) {
+                return ResponseHelper::error(null, 'User role could not be determined', 'forbidden', 403);
             }
 
-            // Check Sale Staff
-            elseif (SaleStaff::where('employee_id', $user->employee_id)->exists()) {
-                $role = 'sales_staff';
-            }
-
-            if (!$role) {
-                return response()->json([
-                    'status' => 404,
-                    'message' => 'User role could not be determined',
-                    'data' => []
+            try {
+                $request->validate([
+                    'status' => 'required|string|in:new,pending,completed',
                 ]);
+            } catch (ValidationException $e) {
+                return ResponseHelper::error($e->errors(), 'Validation failed', 'validation_error', 422);
             }
-            // Get product training only
-            $trainings = TrainingVideo::where('training_type', 'product')
-                ->whereJsonContains('roles', $role)
-                ->latest()
-                ->get();
-            
 
-            $data = $trainings->map(function ($training) {
+            $status = strtolower($request->get('status'));
+            $role = $identity['role'];
+            $today = $this->trainingToday();
+            [$todayStartUtc, $todayEndUtc] = $this->trainingTodayUtcBounds();
+
+            $query = TrainingVideo::where('training_type', 'product')
+                ->whereJsonContains('roles', $role);
+
+            if ($status === 'new') {
+                $query->whereBetween('created_at', [$todayStartUtc, $todayEndUtc]);
+            } elseif ($status === 'pending') {
+                $query->where('created_at', '<', $todayStartUtc);
+            }
+
+            $trainings = $query->latest()->get();
+            $this->ensurePendingStatuses($trainings, $identity);
+
+            $completions = TrainingVideoCompletion::where('user_type', $identity['user_type'])
+                ->where('user_id', $identity['user_id'])
+                ->whereIn('training_video_id', $trainings->pluck('id'))
+                ->get()
+                ->keyBy('training_video_id');
+
+            $data = $trainings->map(function ($training) use ($completions) {
+                $completion = $completions->get($training->id);
+                $userStatus = $this->normalizeUserStatus($completion);
 
                 return [
                     'id' => $training->id,
-
                     'training_type' => $training->training_type,
-
                     'product_name' => $training->product_name,
-
                     'product_code' => $training->product_code,
-
                     'product_category' => $training->product_category,
-
                     'product_sub_category' => $training->product_sub_category,
-
                     'color' => $training->product_color,
-
                     'price' => $training->price,
-
                     'training_details' => $training->training_details
-                    ? preg_replace('/\s+/', ' ', trim($training->training_details))
-                    : null,
-
-                    'image' =>  asset($training->image),
-                        
-
-                    'audio' => asset($training->audio),
+                        ? preg_replace('/\s+/', ' ', trim($training->training_details))
+                        : null,
+                    'image' => $training->image ? asset($training->image) : null,
+                    'audio' => $training->audio ? asset($training->audio) : null,
+                    'status' => $userStatus,
+                    'completed_at' => $completion && $userStatus === 'completed'
+                        ? optional($completion->completed_at)->toDateTimeString()
+                        : null,
+                    'created_at' => optional($training->created_at)->toDateTimeString(),
                 ];
-            });
+            })->filter(function (array $row) use ($status, $today) {
+                return $this->matchesStatusFilter($row, $status, $today);
+            })->values();
 
-            return response()->json([
-                'status' => 200,
-                'message' => 'Product training retrieved successfully',
-                'data' => $data
-            ]);
-
+            return ResponseHelper::success($data, 'Product training retrieved successfully', '200', 200);
         } catch (\Exception $e) {
-
-            return response()->json([
-                'status' => 500,
-                'message' => 'Something went wrong',
-                'error' => $e->getMessage()
-            ], 500);
+            return ResponseHelper::error($e->getMessage(), 'Something went wrong', 'error', 500);
         }
     }
 
     public function trainingDisplay(Request $request)
-{
-    try {
-
-        $user = Auth::user();
-
-         // Get user's role
-             $role = null;
-
-        // Check ASM
-            if (AreaSaleManager::where('employee_id', $user->employee_id)->exists()) {
-                $role = 'asm';
+    {
+        try {
+            $user = Auth::user();
+            if (!$user) {
+                return ResponseHelper::error(null, 'User not authenticated', 'unauthorized', 401);
             }
 
-            // Check Branch Manager
-            elseif (BranchManager::where('employee_id', $user->employee_id)->exists()) {
-                $role = 'branch_manager';
+            $identity = $this->resolveUserIdentity($user);
+            if (!$identity['role']) {
+                return ResponseHelper::error(null, 'User role could not be determined', 'forbidden', 403);
             }
 
-            // Check Sale Staff
-            elseif (SaleStaff::where('employee_id', $user->employee_id)->exists()) {
-                $role = 'sales_staff';
-            }
-
-            if (!$role) {
-                return response()->json([
-                    'status' => 404,
-                    'message' => 'User role could not be determined',
-                    'data' => []
+            try {
+                $request->validate([
+                    'category' => 'required|string',
+                    'status' => 'required|string|in:new,pending,completed',
                 ]);
+            } catch (ValidationException $e) {
+                return ResponseHelper::error($e->errors(), 'Validation failed', 'validation_error', 422);
             }
 
-        $trainings = TrainingVideo::where('training_type', 'display')
-            ->whereJsonContains('roles', $role)
+            $status = strtolower($request->get('status'));
+            $categoryInput = trim((string) $request->get('category'));
+            $categorySlug = \Illuminate\Support\Str::slug($categoryInput);
 
-            // Optional category filter
-            ->when($request->filled('category'), function ($query) use ($request) {
-                $query->where('category', $request->category);
-            })
+            // Accept slug or name (e.g. unstitched / Unstitched)
+            $category = \App\Models\DisplayCategory::query()
+                ->where(function ($q) use ($categoryInput, $categorySlug) {
+                    $q->where('slug', $categorySlug)
+                        ->orWhere('slug', strtolower($categoryInput))
+                        ->orWhereRaw('LOWER(name) = ?', [strtolower($categoryInput)]);
+                })
+                ->first();
 
-            ->latest()
-            ->get();
+            if (!$category) {
+                return ResponseHelper::error(null, 'Display category not found', 'not_found', 404);
+            }
 
-        $data = $trainings->map(function ($training) {
+            $role = $identity['role'];
+            $today = $this->trainingToday();
+            [$todayStartUtc, $todayEndUtc] = $this->trainingTodayUtcBounds();
 
-            return [
-                'id' => $training->id,
+            $query = TrainingVideo::where('training_type', 'display')
+                ->whereJsonContains('roles', $role)
+                ->where('category', $category->slug);
 
-                'training_type' => $training->training_type,
+            if ($status === 'new') {
+                $query->whereBetween('created_at', [$todayStartUtc, $todayEndUtc]);
+            } elseif ($status === 'pending') {
+                $query->where('created_at', '<', $todayStartUtc);
+            }
 
-                'title' => $training->title,
+            $trainings = $query->latest()->get();
+            $this->ensurePendingStatuses($trainings, $identity);
 
-                'description' => $training->description,
+            $completions = TrainingVideoCompletion::where('user_type', $identity['user_type'])
+                ->where('user_id', $identity['user_id'])
+                ->whereIn('training_video_id', $trainings->pluck('id'))
+                ->get()
+                ->keyBy('training_video_id');
 
-                'image' => $training->image
-                    ? asset($training->image)
-                    : null,
+            $data = $trainings->map(function ($training) use ($completions, $category) {
+                $completion = $completions->get($training->id);
+                $userStatus = $this->normalizeUserStatus($completion);
 
-                'audio' => $training->audio
-                    ? asset($training->audio)
-                    : null,
-            ];
-        });
+                return [
+                    'id' => $training->id,
+                    'training_type' => $training->training_type,
+                    'category' => $training->category,
+                    'category_name' => $category->name,
+                    'title' => $training->title,
+                    'description' => $training->description,
+                    'image' => $training->image ? asset($training->image) : null,
+                    'audio' => $training->audio ? asset($training->audio) : null,
+                    'status' => $userStatus,
+                    'completed_at' => $completion && $userStatus === 'completed'
+                        ? optional($completion->completed_at)->toDateTimeString()
+                        : null,
+                    'created_at' => optional($training->created_at)->toDateTimeString(),
+                ];
+            })->filter(function (array $row) use ($status, $today) {
+                return $this->matchesStatusFilter($row, $status, $today);
+            })->values();
 
-        return response()->json([
-            'status' => 200,
-            'message' => 'Display training retrieved successfully',
-            'data' => $data
-        ]);
-
-    } catch (\Exception $e) {
-
-        return response()->json([
-            'status' => 500,
-            'message' => 'Something went wrong',
-            'error' => $e->getMessage()
-        ], 500);
+            return ResponseHelper::success($data, 'Display training retrieved successfully', '200', 200);
+        } catch (\Exception $e) {
+            return ResponseHelper::error($e->getMessage(), 'Something went wrong', 'error', 500);
+        }
     }
-}
 
     /**
      * Mark a training module video as complete for the logged-in user (any role).
@@ -378,6 +380,56 @@ class TrainingVideoController extends Controller
         }
 
         return 'pending';
+    }
+
+    /**
+     * Business "today" for training tabs (Pakistan).
+     */
+    private function trainingToday(): string
+    {
+        return Carbon::now('Asia/Karachi')->toDateString();
+    }
+
+    /**
+     * UTC bounds for Pakistan "today" (for created_at queries).
+     *
+     * @return array{0: \Carbon\Carbon, 1: \Carbon\Carbon}
+     */
+    private function trainingTodayUtcBounds(): array
+    {
+        $start = Carbon::now('Asia/Karachi')->startOfDay()->utc();
+        $end = Carbon::now('Asia/Karachi')->endOfDay()->utc();
+
+        return [$start, $end];
+    }
+
+    /**
+     * new       = created today + not completed
+     * pending   = older + not completed
+     * completed = completed (any date)
+     */
+    private function matchesStatusFilter(array $row, string $status, string $today): bool
+    {
+        $createdDate = !empty($row['created_at'])
+            ? Carbon::parse($row['created_at'], 'UTC')->timezone('Asia/Karachi')->toDateString()
+            : null;
+
+        $isToday = $createdDate === $today;
+        $userStatus = $row['status'] ?? 'pending';
+
+        if ($status === 'new') {
+            return $isToday && $userStatus === 'pending';
+        }
+
+        if ($status === 'pending') {
+            return !$isToday && $userStatus === 'pending';
+        }
+
+        if ($status === 'completed') {
+            return $userStatus === 'completed';
+        }
+
+        return true;
     }
 
     private function resolveUserIdentity($user): array

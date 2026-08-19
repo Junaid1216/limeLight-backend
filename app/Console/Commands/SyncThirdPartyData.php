@@ -72,8 +72,11 @@ class SyncThirdPartyData extends Command
             $this->warn('Sales sync partially failed — some days were skipped.');
         }
 
-        $this->info('Syncing transaction + footfall...');
-        $this->syncTransactionAndFootfall($branches, $start, $end);
+        $this->info('Syncing transactions...');
+        $this->syncTransactionSummaries($branches);
+
+        $this->info('Syncing footfall (all branches, one request)...');
+        $this->syncAllFootfall($branches, $start, $end);
 
         $this->info('Saving sales...');
         $savedInvoices = $this->persistSales($branches, $salesByShop);
@@ -321,10 +324,10 @@ class SyncThirdPartyData extends Command
         }
     }
 
-    private function syncTransactionAndFootfall($branches, $start, $end): void
+    private function syncTransactionSummaries($branches): void
     {
         foreach ($branches->chunk(10) as $chunk) {
-            $responses = Http::pool(function ($pool) use ($chunk, $start, $end) {
+            $responses = Http::pool(function ($pool) use ($chunk) {
                 $requests = [];
 
                 foreach ($chunk as $branch) {
@@ -336,15 +339,6 @@ class SyncThirdPartyData extends Command
                             'Authorization' => 'Token ' . $this->yofiToken,
                         ])
                         ->get('https://unov.yofi.link/api/outlet/' . $branch->branch_id . '/');
-
-                    $requests["ff_{$branchKey}"] = $pool->as("ff_{$branchKey}")
-                        ->timeout(60)
-                        ->get('https://unov.yofi.link/api/footfall/daily/', [
-                            'outlet' => $branch->branch_id,
-                            'token' => $this->yofiToken,
-                            'start' => $start->format('Y-m-d'),
-                            'end' => $end->format('Y-m-d'),
-                        ]);
                 }
 
                 return $requests;
@@ -352,9 +346,88 @@ class SyncThirdPartyData extends Command
 
             foreach ($chunk as $branch) {
                 $this->saveTransactionSummary($branch, $responses["txn_{$branch->id}"] ?? null);
-                $this->saveFootfall($branch, $responses["ff_{$branch->id}"] ?? null);
             }
         }
+    }
+
+    /**
+     * One API hit returns every shop's footfall for the date range.
+     */
+    private function syncAllFootfall($branches, $start, $end): void
+    {
+        try {
+            $response = Http::timeout(120)
+                ->get('https://unov.yofi.link/api/footfall/daily/', [
+                    'token' => $this->yofiToken,
+                    'start' => $start->format('Y-m-d'),
+                    'end' => $end->format('Y-m-d'),
+                ]);
+        } catch (\Throwable $e) {
+            Log::error('Footfall sync request failed', ['error' => $e->getMessage()]);
+            $this->error('Footfall sync request failed: ' . $e->getMessage());
+            return;
+        }
+
+        if (!$response->successful()) {
+            Log::warning('Footfall sync failed', [
+                'status' => $response->status(),
+                'body' => substr($response->body(), 0, 500),
+            ]);
+            $this->warn('Footfall sync failed (HTTP ' . $response->status() . ')');
+            return;
+        }
+
+        $data = $response->json();
+        if (!is_array($data)) {
+            $this->warn('Footfall sync returned invalid payload');
+            return;
+        }
+
+        $branchesByShopId = $branches->keyBy(function ($branch) {
+            return (string) $branch->branch_id;
+        });
+
+        $savedShops = 0;
+        $skippedShops = 0;
+
+        foreach ($data as $shop) {
+            if (!is_array($shop)) {
+                continue;
+            }
+
+            $shopId = isset($shop['shop_id']) ? (string) $shop['shop_id'] : '';
+            if ($shopId === '' || !isset($shop['footfall_daily_summary']) || !is_array($shop['footfall_daily_summary'])) {
+                $skippedShops++;
+                continue;
+            }
+
+            $branch = $branchesByShopId->get($shopId);
+            if (!$branch) {
+                $skippedShops++;
+                continue;
+            }
+
+            foreach ($shop['footfall_daily_summary'] as $row) {
+                if (!is_array($row) || empty($row['date'])) {
+                    continue;
+                }
+
+                FootfallDailySummary::updateOrCreate(
+                    [
+                        'branch_id' => $branch->id,
+                        'date' => $row['date'],
+                    ],
+                    [
+                        'footfall' => $row['footfall'] ?? 0,
+                        'on_time' => $row['on_time'] ?? null,
+                    ]
+                );
+            }
+
+            $savedShops++;
+        }
+
+        $this->info("Footfall saved for {$savedShops} shops" . ($skippedShops ? " (skipped {$skippedShops})" : ''));
     }
 
     private function saveTransactionSummary($branch, $response): void
@@ -387,43 +460,6 @@ class SyncThirdPartyData extends Command
                     'total_items' => $item['total_items'] ?? 0,
                 ]
             );
-        }
-    }
-
-    private function saveFootfall($branch, $response): void
-    {
-        if (!$response || !$response->successful()) {
-            Log::warning('Footfall sync failed', [
-                'branch_id' => $branch->id,
-                'outlet' => $branch->branch_id,
-                'status' => $response ? $response->status() : null,
-            ]);
-            return;
-        }
-
-        $data = $response->json();
-
-        if (!is_array($data)) {
-            return;
-        }
-
-        foreach ($data as $shop) {
-            if (!isset($shop['footfall_daily_summary']) || !is_array($shop['footfall_daily_summary'])) {
-                continue;
-            }
-
-            foreach ($shop['footfall_daily_summary'] as $row) {
-                FootfallDailySummary::updateOrCreate(
-                    [
-                        'branch_id' => $branch->id,
-                        'date' => $row['date'],
-                    ],
-                    [
-                        'footfall' => $row['footfall'] ?? 0,
-                        'on_time' => $row['on_time'] ?? null,
-                    ]
-                );
-            }
         }
     }
 }

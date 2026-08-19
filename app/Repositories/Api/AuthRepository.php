@@ -5,6 +5,7 @@ namespace App\Repositories\Api;
 use App\Mail\ForgotOTPMail;
 use App\Mail\UserCredentials;
 use App\Models\AreaSaleManager;
+use App\Models\Branch;
 use App\Models\BranchManager;
 use App\Models\SaleStaff;
 use App\Models\User;
@@ -118,17 +119,23 @@ class AuthRepository implements AuthRepositoryInterface
         $token = $user->createToken($request['type'] . '_token')->plainTextToken;
 
         $branchId = null;
+        $branchName = null;
         if ($request['type'] === 'staff' || $request['type'] === 'manager') {
             $branchId = $user->branch_id ?? null;
+            if ($branchId) {
+                $branchName = Branch::where('id', $branchId)->value('name');
+            }
         }
 
-        // Ensure branch_id is always present in user payload for app use
+        // Ensure branch_id / branch_name present in user payload for app use
         $user->branch_id = $branchId;
+        $user->branch_name = $branchName;
 
         return [
             'user' => $user,
             'token' => $token,
             'branch_id' => $branchId,
+            'branch_name' => $branchName,
             'role' => $request['type'],
         ];
     }

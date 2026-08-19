@@ -182,6 +182,16 @@
             @endif
 
              @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Display Categories') && $sideMenuPermissions['Display Categories']->contains('view')))
+                <li class="dropdown {{ request()->is('admin/display-categories') || request()->is('admin/display-categories/*') ? 'active' : ''}}">
+                    <a href="{{ url('admin/display-categories') }}" class="nav-link">
+                        <i data-feather="grid"></i>
+                        <span>Display Categories</span>
+                    </a>
+                </li>
+            @endif
+
+             @if (Auth::guard('admin')->check() ||
                     ($sideMenuPermissions->has('Surveys') && $sideMenuPermissions['Surveys']->contains('view')))
                 <li class="dropdown {{ request()->is('admin/surveys') || request()->is('admin/surveys/*') ? 'active' : ''}}">
                     <a href="{{ url('admin/surveys') }}" class="nav-link">

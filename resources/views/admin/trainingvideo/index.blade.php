@@ -62,11 +62,11 @@
                                 required>
 
                             <option value="">Select Category</option>
-
-                            <option value="unstitched">Unstitched</option>
-                            <option value="rtw">RTW</option>
-                            <option value="co-ords">Co-ords</option>
-                            <option value="western">Western</option>
+                            @foreach(($displayCategories ?? []) as $displayCategory)
+                                <option value="{{ $displayCategory->slug }}">
+                                    {{ $displayCategory->name }}
+                                </option>
+                            @endforeach
 
                         </select>
                     </div>

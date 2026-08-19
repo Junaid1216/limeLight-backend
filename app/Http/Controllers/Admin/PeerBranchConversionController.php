@@ -16,10 +16,14 @@ class PeerBranchConversionController extends Controller
     {
         $period = $request->get('period', 'weekly');
         $id = $request->get('id');
+        $from_date = $request->get('from_date');
+        $to_date = $request->get('to_date');
 
-        [$from, $to] = $this->resolvePeriod($period);
+        [$from, $to] = $this->resolveDateRange($period, $from_date, $to_date);
 
-        $branchManagers = BranchManager::with('branch')->orderBy('name')->get();
+        $branchManagers = BranchManager::with('branch:id,name,region_id')
+            ->orderBy('name')
+            ->get(['id', 'name', 'branch_id']);
 
         $branchManagerOptions = $branchManagers->map(function ($m) {
             return ['id' => $m->id, 'label' => $m->id . ' - ' . $m->name];
@@ -33,7 +37,8 @@ class PeerBranchConversionController extends Controller
             $selected = $branchManagers->firstWhere('id', (int) $id);
 
             if ($selected && $selected->branch) {
-                $peerBranches = Branch::where('region_id', $selected->branch->region_id)->get();
+                $peerBranches = Branch::where('region_id', $selected->branch->region_id)
+                    ->get(['id', 'name', 'region_id']);
                 $rows = $this->branchConversionRows($peerBranches, $from, $to);
                 $yourBranch = collect($rows)->firstWhere('branch_id', $selected->branch->id);
             }
@@ -42,6 +47,8 @@ class PeerBranchConversionController extends Controller
         return view('admin.peerbranchconversion.index', compact(
             'period',
             'id',
+            'from_date',
+            'to_date',
             'from',
             'to',
             'branchManagerOptions',
@@ -49,6 +56,28 @@ class PeerBranchConversionController extends Controller
             'rows',
             'yourBranch'
         ));
+    }
+
+    /**
+     * Custom from/to when both provided; otherwise weekly/monthly period.
+     */
+    private function resolveDateRange(string $period, ?string $fromDate, ?string $toDate): array
+    {
+        if ($fromDate && $toDate) {
+            try {
+                $from = Carbon::parse($fromDate)->startOfDay();
+                $to = Carbon::parse($toDate)->endOfDay();
+                if ($from->gt($to)) {
+                    return [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
+                }
+
+                return [$from, $to];
+            } catch (\Exception $e) {
+                // fall through to period
+            }
+        }
+
+        return $this->resolvePeriod($period);
     }
 
     private function resolvePeriod(string $period): array
@@ -88,17 +117,30 @@ class PeerBranchConversionController extends Controller
 
     private function branchConversionRows($branches, Carbon $from, Carbon $to): array
     {
+        if ($branches->isEmpty()) {
+            return [];
+        }
+
+        $branchIds = $branches->pluck('id')->all();
+        $branchNames = $branches->pluck('name')->filter()->values()->all();
+
+        $trafficByBranch = FootfallDailySummary::whereIn('branch_id', $branchIds)
+            ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
+            ->selectRaw('branch_id, SUM(footfall) as total')
+            ->groupBy('branch_id')
+            ->pluck('total', 'branch_id');
+
+        $invoicesByShop = Sale::whereIn('shop_name', $branchNames)
+            ->whereBetween('date', [$from, $to])
+            ->selectRaw('shop_name, COUNT(*) as total')
+            ->groupBy('shop_name')
+            ->pluck('total', 'shop_name');
+
         $rows = [];
 
         foreach ($branches as $branch) {
-            $traffic = FootfallDailySummary::where('branch_id', $branch->id)
-                ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
-                ->sum('footfall');
-
-            $invoices = Sale::where('shop_name', $branch->name)
-                ->whereBetween('date', [$from, $to])
-                ->count();
-
+            $traffic = (float) ($trafficByBranch[$branch->id] ?? 0);
+            $invoices = (int) ($invoicesByShop[$branch->name] ?? 0);
             $conversion = $traffic > 0
                 ? round(($invoices / $traffic) * 100, 2)
                 : 0;

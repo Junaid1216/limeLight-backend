@@ -17,9 +17,11 @@ class SalesHistoryController extends Controller
 {
     public function index(Request $request)
     {
-        $period = $request->get('period', 'weekly');
+        $period = (string) $request->get('period', '');
         $role = $request->get('role', '');
         $id = $request->get('id');
+        $from_date = $request->get('from_date');
+        $to_date = $request->get('to_date');
 
         // Backward-compatible aliases from old filters
         if (in_array($period, ['day', 'daily'], true)) {
@@ -30,11 +32,21 @@ class SalesHistoryController extends Controller
             $period = 'monthly';
         }
 
-        [$from, $to] = $this->resolvePeriod($period);
+        $hasCustomDates = !empty($from_date) && !empty($to_date);
+        $hasPeriod = in_array($period, ['daily', 'weekly', 'monthly'], true);
+        $canFilter = $id && $role && ($hasPeriod || $hasCustomDates);
 
-        $asms = AreaSaleManager::orderBy('name')->get();
-        $branchManagers = BranchManager::orderBy('name')->get();
-        $saleStaff = SaleStaff::orderBy('name')->get();
+        $from = null;
+        $to = null;
+
+        if ($canFilter) {
+            $periodForRange = $hasPeriod ? $period : 'weekly';
+            [$from, $to] = $this->resolveDateRange($periodForRange, $from_date, $to_date);
+        }
+
+        $asms = AreaSaleManager::orderBy('name')->get(['id', 'name', 'region_id']);
+        $branchManagers = BranchManager::orderBy('name')->get(['id', 'name', 'branch_id']);
+        $saleStaff = SaleStaff::orderBy('name')->get(['id', 'name', 'employee_id', 'branch_id']);
 
         $asmOptions = $asms->map(function ($a) {
             return ['id' => $a->id, 'label' => $a->id . ' - ' . $a->name];
@@ -58,7 +70,7 @@ class SalesHistoryController extends Controller
         ];
         $selected = null;
 
-        if ($id) {
+        if ($canFilter) {
             if ($role === 'asm') {
                 $selected = $asms->firstWhere('id', (int) $id);
                 if ($selected) {
@@ -67,7 +79,7 @@ class SalesHistoryController extends Controller
             } elseif ($role === 'branch_manager') {
                 $selected = $branchManagers->firstWhere('id', (int) $id);
                 if ($selected) {
-                    $selected->loadMissing('branch');
+                    $selected->loadMissing('branch:id,name');
                     [$rows, $summary] = $this->branchManagerSales($selected, $from, $to);
                 }
             } elseif ($role === 'sale_staff') {
@@ -82,6 +94,8 @@ class SalesHistoryController extends Controller
             'period',
             'role',
             'id',
+            'from_date',
+            'to_date',
             'from',
             'to',
             'asmOptions',
@@ -91,6 +105,25 @@ class SalesHistoryController extends Controller
             'rows',
             'summary'
         ));
+    }
+
+    private function resolveDateRange(string $period, ?string $fromDate, ?string $toDate): array
+    {
+        if ($fromDate && $toDate) {
+            try {
+                $from = Carbon::parse($fromDate)->startOfDay();
+                $to = Carbon::parse($toDate)->endOfDay();
+                if ($from->gt($to)) {
+                    return [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
+                }
+
+                return [$from, $to];
+            } catch (\Exception $e) {
+                // fall through
+            }
+        }
+
+        return $this->resolvePeriod($period);
     }
 
     private function resolvePeriod(string $period): array
@@ -148,7 +181,7 @@ class SalesHistoryController extends Controller
 
     private function asmSales(AreaSaleManager $asm, Carbon $from, Carbon $to): array
     {
-        $branches = Branch::where('region_id', $asm->region_id)->get();
+        $branches = Branch::where('region_id', $asm->region_id)->get(['id', 'name']);
         $branchNames = $branches->pluck('name')->filter()->values();
 
         if ($branchNames->isEmpty()) {
@@ -156,12 +189,13 @@ class SalesHistoryController extends Controller
         }
 
         $sales = $this->applySaleDateFilter(
-            Sale::with('items')->whereIn('shop_name', $branchNames),
+            Sale::with(['items:id,invoice_id,quantity,salesperson_name,salesperson_code'])
+                ->whereIn('shop_name', $branchNames),
             $from,
             $to
         )
             ->orderByDesc('date')
-            ->get();
+            ->get(['id', 'invoice_id', 'shop_name', 'date', 'net_total']);
 
         $rows = [];
         $summary = $this->emptySummary();
@@ -199,13 +233,15 @@ class SalesHistoryController extends Controller
         }
 
         $sales = $this->applySaleDateFilter(
-            Sale::with('items')->where('shop_name', $branch->name),
+            Sale::with(['items:id,invoice_id,quantity,price,salesperson_name,salesperson_code'])
+                ->where('shop_name', $branch->name),
             $from,
             $to
         )
             ->orderByDesc('date')
-            ->get();
+            ->get(['id', 'invoice_id', 'shop_name', 'date', 'net_total']);
 
+        $rateCache = [];
         $rows = [];
         $summary = $this->emptySummary();
 
@@ -215,12 +251,18 @@ class SalesHistoryController extends Controller
             });
             $staffNames = $sale->items->pluck('salesperson_name')->filter()->unique()->implode(', ');
             $staffCodes = $sale->items->pluck('salesperson_code')->filter()->unique()->implode(', ');
-            // Product sales amount (qty × price) — commission base
             $amount = $sale->items->sum(function ($item) {
                 return max(0, (float) $item->price) * max(0, (int) $item->quantity);
             });
-            // Per product × rate at sale date, then sum
-            $commission = CommissionHelper::sumProducts('branch_manager', $sale->items, $sale->date);
+
+            $dateKey = (string) $sale->date;
+            if (!array_key_exists($dateKey, $rateCache)) {
+                $rateCache[$dateKey] = CommissionHelper::rateFor('branch_manager', $sale->date);
+            }
+            $rate = $rateCache[$dateKey];
+            $commission = round($sale->items->sum(function ($item) use ($rate) {
+                return (max(0, (float) $item->quantity) * max(0, (float) $item->price) * $rate) / 100;
+            }), 2);
 
             $rows[] = [
                 'invoice_id' => $sale->invoice_id,
@@ -251,7 +293,8 @@ class SalesHistoryController extends Controller
 
         $sales = $this->applySaleDateFilter(
             Sale::with(['items' => function ($q) use ($staff) {
-                $q->where('salesperson_code', $staff->employee_id);
+                $q->where('salesperson_code', $staff->employee_id)
+                    ->select(['id', 'invoice_id', 'quantity', 'price', 'salesperson_code']);
             }])->whereHas('items', function ($q) use ($staff) {
                 $q->where('salesperson_code', $staff->employee_id);
             }),
@@ -259,8 +302,10 @@ class SalesHistoryController extends Controller
             $to
         )
             ->orderByDesc('date')
-            ->get();
+            ->get(['id', 'invoice_id', 'shop_name', 'date', 'net_total']);
 
+        $slabs = Slab::orderBy('from_amount')->get(['from_amount', 'to_amount', 'incentive_amount']);
+        $rateCache = [];
         $rows = [];
         $summary = $this->emptySummary();
 
@@ -272,12 +317,23 @@ class SalesHistoryController extends Controller
                 return (float) $item->price * max(0, (int) $item->quantity);
             });
 
-            $commission = CommissionHelper::sumProducts('sales_staff', $sale->items, $sale->date);
+            $dateKey = (string) $sale->date;
+            if (!array_key_exists($dateKey, $rateCache)) {
+                $rateCache[$dateKey] = CommissionHelper::rateFor('sales_staff', $sale->date);
+            }
+            $rate = $rateCache[$dateKey];
+            $commission = round($sale->items->sum(function ($item) use ($rate) {
+                return (max(0, (float) $item->quantity) * max(0, (float) $item->price) * $rate) / 100;
+            }), 2);
 
-            $slab = Slab::where('from_amount', '<=', $sale->net_total)
-                ->where('to_amount', '>=', $sale->net_total)
-                ->first();
-            $slipBoundIncentive = (float) ($slab->incentive_amount ?? 0);
+            $netTotal = (float) $sale->net_total;
+            $slipBoundIncentive = 0.0;
+            foreach ($slabs as $slab) {
+                if ($netTotal >= (float) $slab->from_amount && $netTotal <= (float) $slab->to_amount) {
+                    $slipBoundIncentive = (float) ($slab->incentive_amount ?? 0);
+                    break;
+                }
+            }
 
             $rows[] = [
                 'invoice_id' => $sale->invoice_id,

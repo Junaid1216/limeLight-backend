@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BranchManagerComparisonController;
 use App\Http\Controllers\Api\BranchManagerDashboardController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\DisplayCategoryController;
 use App\Http\Controllers\Api\EmailOtpController;
 use App\Http\Controllers\Api\FeedBackController;
 use App\Http\Controllers\Api\LineItemController;
@@ -84,6 +85,9 @@ Route::middleware('auth:sanctum')->group(function () {
     //Get training videos
     Route::get('/training-videos', [TrainingVideoController::class, 'getTrainingVideos']);
     Route::post('/training-videos/{id}/status', [TrainingVideoController::class, 'updateStatus']);
+    Route::get('/product-training', [TrainingVideoController::class, 'trainingProduct']);
+    Route::get('/training-display', [TrainingVideoController::class, 'trainingDisplay']);
+    Route::get('/display-categories', [DisplayCategoryController::class, 'index']);
 
     // Announcements (filters: all|hr|performance|promotions)
     Route::get('/announcements', [AnnouncementController::class, 'index']);
@@ -158,9 +162,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/sales-staff-comparison',[DashboardController::class,'staffComparison']);
 
-    Route::get('/product-training',[TrainingVideoController::class, 'trainingProduct']);
-
-    Route::get('/training-display',[TrainingVideoController::class, 'trainingDisplay']);
 });
 
 Route::post('/admin/approve-targets/{branchManagerId}/{month}/{year}',[MonthlyTargetController::class, 'approveTargets']);

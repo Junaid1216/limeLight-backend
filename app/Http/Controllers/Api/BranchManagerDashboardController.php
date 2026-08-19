@@ -321,15 +321,24 @@ class BranchManagerDashboardController extends Controller
             /*
         |--------------------------------------------------------------------------
         | Weekly Performance
+        | Missed pieces from a completed week carry into the next week's target
+        | (same idea as weekly_over_achieved, but for under-achievement).
         |--------------------------------------------------------------------------
         */
 
         $weekly = [];
         $weeklyActual = [];
         $weeklyOverAchieved = [];
+        $weeklyBaseTargets = [];
+        $weeklyEffectiveTargets = [];
+        $weeklyCarryForward = [];
 
         $monthStart = Carbon::now()->startOfMonth();
         $monthEnd   = Carbon::now()->endOfMonth();
+        $now = Carbon::now();
+
+        // Remaining from a finished week that rolls into the next week
+        $carryForward = 0.0;
 
         for ($i = 1; $i <= 4; $i++) {
 
@@ -347,7 +356,6 @@ class BranchManagerDashboardController extends Controller
                 ->addDays(6)
                 ->endOfDay();
 
-
             /*
             |--------------------------------------------------------------------------
             | Make Sure Week Does Not Go Outside Current Month
@@ -363,10 +371,9 @@ class BranchManagerDashboardController extends Controller
                 $end = $monthEnd->copy()->endOfDay();
             }
 
-
             /*
             |--------------------------------------------------------------------------
-            | Weekly Achieved (actual + capped)
+            | Weekly Achieved (actual)
             |--------------------------------------------------------------------------
             */
 
@@ -385,7 +392,6 @@ class BranchManagerDashboardController extends Controller
                     ]);
 
             })->get();
-
 
             foreach ($weekItems as $item) {
 
@@ -413,17 +419,35 @@ class BranchManagerDashboardController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | Cap weekly achieved at weekly target
+            | Base week target + carry-in from previous missed week
             | week_N is % of monthly_target → pieces = monthly * week% / 100
-            | Keep actual + over-achieved separately for each week
             |--------------------------------------------------------------------------
             */
 
             $weekPercent = (float) ($target->{'week_' . $i} ?? 0);
             $weekTargetPieces = ($target->monthly_target * $weekPercent) / 100;
-            $weekAchievedCapped = $weekTargetPieces > 0
-                ? min($weekAchievedActual, $weekTargetPieces)
+            $carryIn = $carryForward;
+            $effectiveWeekTarget = $weekTargetPieces + $carryIn;
+
+            $weekAchievedCapped = $effectiveWeekTarget > 0
+                ? min($weekAchievedActual, $effectiveWeekTarget)
                 : 0;
+
+            $weekOverAchieved = max(0, $weekAchievedActual - $effectiveWeekTarget);
+
+            /*
+            |--------------------------------------------------------------------------
+            | Only completed weeks push remaining into the next week
+            |--------------------------------------------------------------------------
+            */
+
+            $weekCompleted = $now->gt($end);
+            if ($weekCompleted) {
+                $carryForward = max(0, $effectiveWeekTarget - $weekAchievedActual);
+            } else {
+                // Current / future week: do not roll remaining forward yet
+                $carryForward = 0;
+            }
 
             /*
             |--------------------------------------------------------------------------
@@ -431,9 +455,12 @@ class BranchManagerDashboardController extends Controller
             |--------------------------------------------------------------------------
             */
 
+            $weeklyBaseTargets["week{$i}"] = round($weekTargetPieces, 2);
+            $weeklyCarryForward["week{$i}"] = round($carryIn, 2);
+            $weeklyEffectiveTargets["week{$i}"] = round($effectiveWeekTarget, 2);
             $weekly["week{$i}"] = $weekAchievedCapped;
             $weeklyActual["week{$i}"] = $weekAchievedActual;
-            $weeklyOverAchieved["week{$i}"] = max(0, $weekAchievedActual - $weekTargetPieces);
+            $weeklyOverAchieved["week{$i}"] = $weekOverAchieved;
 
         }
 
@@ -458,14 +485,31 @@ class BranchManagerDashboardController extends Controller
 
             'achievement_percentage' => $percentage,
 
-            'weekly_targets' => [
-                'week1' => round(($target->monthly_target * (float) $target->week_1) / 100, 2),
-                'week2' => round(($target->monthly_target * (float) $target->week_2) / 100, 2),
-                'week3' => round(($target->monthly_target * (float) $target->week_3) / 100, 2),
-                'week4' => round(($target->monthly_target * (float) $target->week_4) / 100, 2),
+            // Original week % targets (no carry)
+            'weekly_base_targets' => [
+                'week1' => $weeklyBaseTargets['week1'],
+                'week2' => $weeklyBaseTargets['week2'],
+                'week3' => $weeklyBaseTargets['week3'],
+                'week4' => $weeklyBaseTargets['week4'],
             ],
 
-            // Capped at weekly target
+            // Missed qty brought into each week from the previous completed week
+            'weekly_carry_forward' => [
+                'week1' => $weeklyCarryForward['week1'],
+                'week2' => $weeklyCarryForward['week2'],
+                'week3' => $weeklyCarryForward['week3'],
+                'week4' => $weeklyCarryForward['week4'],
+            ],
+
+            // What the week must achieve now = base + carry (shown as weekly_targets)
+            'weekly_targets' => [
+                'week1' => $weeklyEffectiveTargets['week1'],
+                'week2' => $weeklyEffectiveTargets['week2'],
+                'week3' => $weeklyEffectiveTargets['week3'],
+                'week4' => $weeklyEffectiveTargets['week4'],
+            ],
+
+            // Capped at effective weekly target (base + carry)
             'weekly_performance' => [
                 'week1' => $weekly['week1'],
                 'week2' => $weekly['week2'],
@@ -481,7 +525,7 @@ class BranchManagerDashboardController extends Controller
                 'week4' => $weeklyActual['week4'],
             ],
 
-            // Extra above weekly target (0 if not exceeded)
+            // Extra above effective weekly target (0 if not exceeded)
             'weekly_over_achieved' => [
                 'week1' => $weeklyOverAchieved['week1'],
                 'week2' => $weeklyOverAchieved['week2'],

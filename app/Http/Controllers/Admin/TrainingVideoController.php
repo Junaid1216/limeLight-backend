@@ -15,7 +15,9 @@ class TrainingVideoController extends Controller
     public function index()
     {
         $videos = TrainingVideo::all();
-        return view('admin.trainingvideo.index', compact('videos'));
+        $displayCategories = \App\Models\DisplayCategory::active()->orderBy('name')->get();
+
+        return view('admin.trainingvideo.index', compact('videos', 'displayCategories'));
     }
 
     public function store(Request $request)
@@ -99,6 +101,10 @@ class TrainingVideoController extends Controller
         */
 
         elseif ($request->training_type === 'display') {
+            $request->validate([
+                'category' => 'required|string|exists:display_categories,slug',
+            ]);
+
             $training->category = $request->category;
 
             $training->roles = $request->roles;

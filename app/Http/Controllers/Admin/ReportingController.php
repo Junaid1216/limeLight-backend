@@ -16,6 +16,7 @@ use App\Models\SaleStaff;
 use App\Models\Target;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 class ReportingController extends Controller
 {
@@ -36,18 +37,40 @@ class ReportingController extends Controller
         'perfumes', 'body mist', 'non-tradable',
     ];
 
+    /** @var Collection|null branch_id|category => Target */
+    private $targetIndex = null;
+
+    /** @var Collection|null user_id => Collection of AssignedTarget */
+    private $staffTargetsIndex = null;
+
+    /** @var array|null shop_name => [category => qty] */
+    private $achievedQtyIndex = null;
+
     public function index(Request $request)
     {
-        $period = $request->get('period', 'weekly');
+        $period = (string) $request->get('period', '');
         $role = $request->get('role', '');
         $id = $request->get('id');
         $branchCategoryFilter = $request->get('branch_category_filter', 'overall');
+        $from_date = $request->get('from_date');
+        $to_date = $request->get('to_date');
 
-        [$from, $to] = $this->resolvePeriod($period);
+        $hasCustomDates = !empty($from_date) && !empty($to_date);
+        $hasPeriod = in_array($period, ['weekly', 'monthly'], true);
+        $canFilter = $id && $role && ($hasPeriod || $hasCustomDates);
 
-        $asms = AreaSaleManager::orderBy('name')->get();
-        $branchManagers = BranchManager::orderBy('name')->get();
-        $saleStaff = SaleStaff::orderBy('name')->get();
+        $from = null;
+        $to = null;
+        $periodForTargets = $hasPeriod ? $period : 'weekly';
+
+        if ($canFilter) {
+            $periodForRange = $hasPeriod ? $period : 'weekly';
+            [$from, $to] = $this->resolveDateRange($periodForRange, $from_date, $to_date);
+        }
+
+        $asms = AreaSaleManager::orderBy('name')->get(['id', 'name', 'region_id']);
+        $branchManagers = BranchManager::orderBy('name')->get(['id', 'name', 'branch_id']);
+        $saleStaff = SaleStaff::orderBy('name')->get(['id', 'name', 'employee_id', 'branch_id']);
 
         $asmOptions = $asms->map(function ($a) {
             return ['id' => $a->id, 'label' => $a->id . ' - ' . $a->name];
@@ -64,23 +87,23 @@ class ReportingController extends Controller
         $selected = null;
         $comparisons = null;
 
-        if ($id && $role) {
+        if ($canFilter) {
             if ($role === 'asm') {
                 $selected = $asms->firstWhere('id', (int) $id);
                 if ($selected) {
-                    $comparisons = $this->asmComparisons($selected, $from, $to, $period);
+                    $comparisons = $this->asmComparisons($selected, $from, $to, $periodForTargets);
                 }
             } elseif ($role === 'branch_manager') {
                 $selected = $branchManagers->firstWhere('id', (int) $id);
                 if ($selected) {
                     $selected->load('branch');
-                    $comparisons = $this->branchManagerComparisons($selected, $from, $to, $branchCategoryFilter, $period);
+                    $comparisons = $this->branchManagerComparisons($selected, $from, $to, $branchCategoryFilter, $periodForTargets);
                 }
             } elseif ($role === 'sale_staff') {
                 $selected = $saleStaff->firstWhere('id', (int) $id);
                 if ($selected) {
                     $selected->load('branch');
-                    $comparisons = $this->saleStaffComparisons($selected, $from, $to, $period);
+                    $comparisons = $this->saleStaffComparisons($selected, $from, $to, $periodForTargets);
                 }
             }
         }
@@ -90,6 +113,8 @@ class ReportingController extends Controller
             'role',
             'id',
             'branchCategoryFilter',
+            'from_date',
+            'to_date',
             'from',
             'to',
             'asmOptions',
@@ -98,6 +123,25 @@ class ReportingController extends Controller
             'selected',
             'comparisons'
         ));
+    }
+
+    private function resolveDateRange(string $period, ?string $fromDate, ?string $toDate): array
+    {
+        if ($fromDate && $toDate) {
+            try {
+                $from = Carbon::parse($fromDate)->startOfDay();
+                $to = Carbon::parse($toDate)->endOfDay();
+                if ($from->gt($to)) {
+                    return [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
+                }
+
+                return [$from, $to];
+            } catch (\Exception $e) {
+                // fall through
+            }
+        }
+
+        return $this->resolvePeriod($period);
     }
 
     private function resolvePeriod(string $period): array
@@ -167,6 +211,24 @@ class ReportingController extends Controller
         return Carbon::now()->year;
     }
 
+    private function monthVariants(): array
+    {
+        $month = $this->currentMonthName();
+
+        return array_values(array_unique([
+            $month,
+            strtolower($month),
+            ucfirst(strtolower($month)),
+        ]));
+    }
+
+    private function yearVariants(): array
+    {
+        $year = $this->currentYearValue();
+
+        return array_values(array_unique([$year, (string) $year]));
+    }
+
     /**
      * Branch category target for selected period.
      * Monthly = monthly_target
@@ -190,28 +252,55 @@ class ReportingController extends Controller
         return round(($monthly * $weekPercent) / 100, 2);
     }
 
-    private function findBranchTarget(int $branchId, string $category): ?Target
+    private function warmTargetIndex($branchIds): void
     {
-        $month = $this->currentMonthName();
-        $year = $this->currentYearValue();
+        if ($this->targetIndex !== null) {
+            return;
+        }
 
-        return Target::where('branch_id', $branchId)
-            ->where('category', $category)
-            ->where(function ($q) use ($month) {
-                $q->where('month', $month)
-                    ->orWhere('month', strtolower($month))
-                    ->orWhere('month', ucfirst(strtolower($month)));
-            })
-            ->where(function ($q) use ($year) {
-                $q->where('year', $year)->orWhere('year', (string) $year);
-            })
-            ->first();
+        $branchIds = collect($branchIds)->filter()->unique()->values();
+        $this->targetIndex = collect();
+
+        if ($branchIds->isEmpty()) {
+            return;
+        }
+
+        $targets = Target::whereIn('branch_id', $branchIds)
+            ->whereIn('month', $this->monthVariants())
+            ->whereIn('year', $this->yearVariants())
+            ->get();
+
+        foreach ($targets as $target) {
+            $key = $target->branch_id . '|' . strtolower(trim((string) $target->category));
+            // Keep first match (same as ->first() previously)
+            if (!$this->targetIndex->has($key)) {
+                $this->targetIndex->put($key, $target);
+            }
+        }
     }
 
-    private function getStaffMonthTargets(int $staffId)
+    private function findBranchTarget(int $branchId, string $category): ?Target
     {
+        $this->warmTargetIndex([$branchId]);
+        $key = $branchId . '|' . strtolower(trim($category));
+
+        return $this->targetIndex->get($key);
+    }
+
+    private function warmStaffTargetsIndex($staffIds): void
+    {
+        if ($this->staffTargetsIndex !== null) {
+            return;
+        }
+
+        $staffIds = collect($staffIds)->filter()->unique()->values();
+        $this->staffTargetsIndex = collect();
+
+        if ($staffIds->isEmpty()) {
+            return;
+        }
+
         $month = $this->currentMonthName();
-        $year = $this->currentYearValue();
         $monthVariants = array_values(array_unique([
             $month,
             strtolower($month),
@@ -219,14 +308,21 @@ class ReportingController extends Controller
             Carbon::now()->format('m'),
             (string) Carbon::now()->month,
         ]));
-        $yearVariants = array_values(array_unique([$year, (string) $year]));
 
-        // Only admin-approved targets count as assigned
-        return AssignedTarget::where('user_id', $staffId)
+        $targets = AssignedTarget::whereIn('user_id', $staffIds)
             ->whereIn('month', $monthVariants)
-            ->whereIn('year', $yearVariants)
+            ->whereIn('year', $this->yearVariants())
             ->where('status', 'approved')
             ->get();
+
+        $this->staffTargetsIndex = $targets->groupBy('user_id');
+    }
+
+    private function getStaffMonthTargets(int $staffId)
+    {
+        $this->warmStaffTargetsIndex([$staffId]);
+
+        return $this->staffTargetsIndex->get($staffId, collect());
     }
 
     /**
@@ -244,22 +340,20 @@ class ReportingController extends Controller
         }
 
         $weekColumn = 'week_' . $this->currentWeekOfMonth();
-        $month = $this->currentMonthName();
-        $year = $this->currentYearValue();
+        $this->warmTargetIndex([$branch->id]);
 
-        $weekPercent = (float) (Target::where('branch_id', $branch->id)
-            ->where(function ($q) use ($month) {
-                $q->where('month', $month)
-                    ->orWhere('month', strtolower($month))
-                    ->orWhere('month', ucfirst(strtolower($month)));
-            })
-            ->where(function ($q) use ($year) {
-                $q->where('year', $year)->orWhere('year', (string) $year);
-            })
-            ->avg($weekColumn) ?? 25);
+        $branchTargets = $this->targetIndex
+            ->filter(function ($target, $key) use ($branch) {
+                return strpos((string) $key, $branch->id . '|') === 0;
+            });
 
-        if ($weekPercent <= 0) {
+        if ($branchTargets->isEmpty()) {
             $weekPercent = 25;
+        } else {
+            $weekPercent = (float) $branchTargets->avg($weekColumn);
+            if ($weekPercent <= 0) {
+                $weekPercent = 25;
+            }
         }
 
         return round(($monthlyAssigned * $weekPercent) / 100, 2);
@@ -268,6 +362,11 @@ class ReportingController extends Controller
     private function asmComparisons(AreaSaleManager $asm, Carbon $from, Carbon $to, string $period): array
     {
         $branches = Branch::where('region_id', $asm->region_id)->get();
+        $this->warmTargetIndex($branches->pluck('id'));
+        $this->warmAchievedQtyIndex($branches->pluck('name'), $from, $to);
+
+        $staffIds = SaleStaff::whereIn('branch_id', $branches->pluck('id'))->pluck('id');
+        $this->warmStaffTargetsIndex($staffIds);
 
         return [
             'type' => 'asm',
@@ -295,10 +394,16 @@ class ReportingController extends Controller
         }
 
         $peerBranches = Branch::where('region_id', $branch->region_id)->get();
+        $this->warmTargetIndex($peerBranches->pluck('id'));
+        $this->warmAchievedQtyIndex($peerBranches->pluck('name'), $from, $to);
+
+        $staffIds = SaleStaff::where('branch_id', $branch->id)->pluck('id');
+        $this->warmStaffTargetsIndex($staffIds);
+
         $month = $this->currentMonthName();
         $year = $this->currentYearValue();
 
-        $monthlyTarget = (float) Target::where('branch_id', $branch->id)
+        $branchTargets = Target::where('branch_id', $branch->id)
             ->where(function ($q) use ($month) {
                 $q->where('month', $month)
                     ->orWhere('month', strtolower($month))
@@ -307,21 +412,14 @@ class ReportingController extends Controller
             ->where(function ($q) use ($year) {
                 $q->where('year', $year)->orWhere('year', (string) $year);
             })
-            ->sum('monthly_target');
+            ->get();
+
+        $monthlyTarget = (float) $branchTargets->sum('monthly_target');
 
         $periodTarget = $monthlyTarget;
         if ($period === 'weekly' && $monthlyTarget > 0) {
             $weekColumn = 'week_' . $this->currentWeekOfMonth();
-            $weekPercent = (float) (Target::where('branch_id', $branch->id)
-                ->where(function ($q) use ($month) {
-                    $q->where('month', $month)
-                        ->orWhere('month', strtolower($month))
-                        ->orWhere('month', ucfirst(strtolower($month)));
-                })
-                ->where(function ($q) use ($year) {
-                    $q->where('year', $year)->orWhere('year', (string) $year);
-                })
-                ->avg($weekColumn) ?? 25);
+            $weekPercent = (float) ($branchTargets->avg($weekColumn) ?? 25);
             if ($weekPercent <= 0) {
                 $weekPercent = 25;
             }
@@ -342,11 +440,26 @@ class ReportingController extends Controller
             ? min(100, round(($achieved / $periodTarget) * 100, 2))
             : null;
 
-        $saleItems = SaleItem::with('sale')
-            ->whereHas('sale', function ($q) use ($branch, $from, $to) {
-                $q->where('shop_name', $branch->name)
-                    ->whereBetween('date', [$from, $to]);
-            })->get(['invoice_id', 'quantity', 'price']);
+        $saleItems = SaleItem::query()
+            ->select(['sale_items.invoice_id', 'sale_items.quantity', 'sale_items.price', 'sales.date'])
+            ->join('sales', 'sales.invoice_id', '=', 'sale_items.invoice_id')
+            ->where('sales.shop_name', $branch->name)
+            ->whereBetween('sales.date', [$from, $to])
+            ->get();
+
+        $commission = 0;
+        if ($isAssigned) {
+            $rateCache = [];
+            foreach ($saleItems as $item) {
+                $dateKey = (string) $item->date;
+                if (!array_key_exists($dateKey, $rateCache)) {
+                    $rateCache[$dateKey] = CommissionHelper::rateFor('branch_manager', $item->date);
+                }
+                $rate = $rateCache[$dateKey];
+                $commission += (max(0, (float) $item->quantity) * max(0, (float) $item->price) * $rate) / 100;
+            }
+            $commission = round($commission, 2);
+        }
 
         return [
             'type' => 'branch_manager',
@@ -358,7 +471,7 @@ class ReportingController extends Controller
                 'remaining' => $isAssigned ? max($periodTarget - $achieved, 0) : null,
                 'achieved_percentage' => $achievedPercentage,
                 'remaining_percentage' => $isAssigned ? max(0, 100 - min(100, $achievedPercentage)) : null,
-                'commission' => $isAssigned ? CommissionHelper::sumProducts('branch_manager', $saleItems) : 0,
+                'commission' => $commission,
             ],
             'staff_comparison' => $this->staffComparisonForBranch($branch, $from, $to, $period),
             'branch_category' => $this->peerBranchCategoryRows($peerBranches, $branch->id, $branchCategoryFilter, $from, $to, $period),
@@ -381,6 +494,7 @@ class ReportingController extends Controller
         }
 
         if ($staff->branch) {
+            $this->warmTargetIndex([$staff->branch->id]);
             foreach ($assigned as $category => $value) {
                 $assigned[$category] = $this->resolveStaffPeriodTarget($value, $staff->branch, $period);
             }
@@ -393,10 +507,11 @@ class ReportingController extends Controller
         $sold = ['garments' => 0, 'unstitched' => 0, 'accessories' => 0];
         $totalQty = 0;
 
-        $saleItems = SaleItem::where('salesperson_code', $staff->employee_id)
-            ->whereHas('sale', function ($q) use ($from, $to) {
-                $q->whereBetween('date', [$from, $to]);
-            })
+        $saleItems = SaleItem::query()
+            ->select(['sale_items.category', 'sale_items.quantity'])
+            ->join('sales', 'sales.invoice_id', '=', 'sale_items.invoice_id')
+            ->where('sale_items.salesperson_code', $staff->employee_id)
+            ->whereBetween('sales.date', [$from, $to])
             ->get();
 
         foreach ($saleItems as $item) {
@@ -445,14 +560,22 @@ class ReportingController extends Controller
                 $end = $today->copy();
             }
 
+            $footfallByDate = FootfallDailySummary::where('branch_id', $staff->branch->id)
+                ->whereBetween('date', [$cursor->toDateString(), $end->toDateString()])
+                ->selectRaw('DATE(date) as d, SUM(footfall) as total')
+                ->groupBy('d')
+                ->pluck('total', 'd');
+
+            $invoicesByDate = Sale::where('shop_name', $staff->branch->name)
+                ->whereBetween('date', [$cursor->copy()->startOfDay(), $end->copy()->endOfDay()])
+                ->selectRaw('DATE(date) as d, COUNT(*) as total')
+                ->groupBy('d')
+                ->pluck('total', 'd');
+
             while ($cursor->lte($end)) {
                 $day = $cursor->toDateString();
-                $footfall = FootfallDailySummary::where('branch_id', $staff->branch->id)
-                    ->whereDate('date', $day)
-                    ->sum('footfall');
-                $invoices = Sale::where('shop_name', $staff->branch->name)
-                    ->whereDate('date', $day)
-                    ->count();
+                $footfall = (float) ($footfallByDate[$day] ?? 0);
+                $invoices = (int) ($invoicesByDate[$day] ?? 0);
                 $rate = $footfall > 0 ? round(($invoices / $footfall) * 100, 2) : 0;
 
                 $row = [
@@ -489,17 +612,30 @@ class ReportingController extends Controller
 
     private function branchConversionRows($branches, Carbon $from, Carbon $to): array
     {
+        if ($branches->isEmpty()) {
+            return [];
+        }
+
+        $branchIds = $branches->pluck('id')->all();
+        $branchNames = $branches->pluck('name')->filter()->values()->all();
+
+        $trafficByBranch = FootfallDailySummary::whereIn('branch_id', $branchIds)
+            ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
+            ->selectRaw('branch_id, SUM(footfall) as total')
+            ->groupBy('branch_id')
+            ->pluck('total', 'branch_id');
+
+        $invoicesByShop = Sale::whereIn('shop_name', $branchNames)
+            ->whereBetween('date', [$from, $to])
+            ->selectRaw('shop_name, COUNT(*) as total')
+            ->groupBy('shop_name')
+            ->pluck('total', 'shop_name');
+
         $rows = [];
 
         foreach ($branches as $branch) {
-            $traffic = FootfallDailySummary::where('branch_id', $branch->id)
-                ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
-                ->sum('footfall');
-
-            $invoices = Sale::where('shop_name', $branch->name)
-                ->whereBetween('date', [$from, $to])
-                ->count();
-
+            $traffic = (float) ($trafficByBranch[$branch->id] ?? 0);
+            $invoices = (int) ($invoicesByShop[$branch->name] ?? 0);
             $conversion = $traffic > 0
                 ? round(($invoices / $traffic) * 100, 2)
                 : 0;
@@ -609,19 +745,37 @@ class ReportingController extends Controller
 
     private function regionConversionRows(int $yourRegionId, Carbon $from, Carbon $to): array
     {
+        $regions = Region::all(['id', 'name']);
+        $allBranches = Branch::whereIn('region_id', $regions->pluck('id'))
+            ->get(['id', 'name', 'region_id'])
+            ->groupBy('region_id');
+
+        $allBranchIds = $allBranches->flatten(1)->pluck('id')->all();
+        $allBranchNames = $allBranches->flatten(1)->pluck('name')->filter()->values()->all();
+
+        $trafficByBranch = FootfallDailySummary::whereIn('branch_id', $allBranchIds)
+            ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
+            ->selectRaw('branch_id, SUM(footfall) as total')
+            ->groupBy('branch_id')
+            ->pluck('total', 'branch_id');
+
+        $invoicesByShop = Sale::whereIn('shop_name', $allBranchNames)
+            ->whereBetween('date', [$from, $to])
+            ->selectRaw('shop_name, COUNT(*) as total')
+            ->groupBy('shop_name')
+            ->pluck('total', 'shop_name');
+
         $rows = [];
 
-        foreach (Region::all() as $region) {
-            $branchIds = Branch::where('region_id', $region->id)->pluck('id');
-            $branchNames = Branch::whereIn('id', $branchIds)->pluck('name');
+        foreach ($regions as $region) {
+            $regionBranches = $allBranches->get($region->id, collect());
+            $traffic = 0;
+            $invoices = 0;
 
-            $traffic = FootfallDailySummary::whereIn('branch_id', $branchIds)
-                ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
-                ->sum('footfall');
-
-            $invoices = Sale::whereIn('shop_name', $branchNames)
-                ->whereBetween('date', [$from, $to])
-                ->count();
+            foreach ($regionBranches as $branch) {
+                $traffic += (float) ($trafficByBranch[$branch->id] ?? 0);
+                $invoices += (int) ($invoicesByShop[$branch->name] ?? 0);
+            }
 
             $conversion = $traffic > 0
                 ? round(($invoices / $traffic) * 100, 2)
@@ -662,8 +816,36 @@ class ReportingController extends Controller
 
     private function staffComparisonForBranch(Branch $branch, Carbon $from, Carbon $to, string $period): array
     {
-        $staffList = SaleStaff::where('branch_id', $branch->id)->get();
+        $staffList = SaleStaff::where('branch_id', $branch->id)->get(['id', 'name', 'employee_id', 'branch_id']);
+        if ($staffList->isEmpty()) {
+            return [];
+        }
+
+        $this->warmStaffTargetsIndex($staffList->pluck('id'));
+        $this->warmTargetIndex([$branch->id]);
+
+        $employeeIds = $staffList->pluck('employee_id')->filter()->values()->all();
+
+        $itemsByStaff = collect();
+        if (!empty($employeeIds)) {
+            $items = SaleItem::query()
+                ->select([
+                    'sale_items.salesperson_code',
+                    'sale_items.quantity',
+                    'sale_items.price',
+                    'sales.date',
+                ])
+                ->join('sales', 'sales.invoice_id', '=', 'sale_items.invoice_id')
+                ->where('sales.shop_name', $branch->name)
+                ->whereBetween('sales.date', [$from, $to])
+                ->whereIn('sale_items.salesperson_code', $employeeIds)
+                ->get();
+
+            $itemsByStaff = $items->groupBy('salesperson_code');
+        }
+
         $staffData = [];
+        $rateCache = [];
 
         foreach ($staffList as $staff) {
             $monthlyAssigned = 0;
@@ -674,13 +856,7 @@ class ReportingController extends Controller
             $target = $this->resolveStaffPeriodTarget($monthlyAssigned, $branch, $period);
             $isAssigned = $target > 0;
 
-            $saleItems = SaleItem::with('sale')
-                ->where('salesperson_code', $staff->employee_id)
-                ->whereHas('sale', function ($q) use ($from, $to, $branch) {
-                    $q->where('shop_name', $branch->name)
-                        ->whereBetween('date', [$from, $to]);
-                })
-                ->get(['invoice_id', 'quantity', 'price']);
+            $saleItems = $itemsByStaff->get($staff->employee_id, collect());
 
             $achievedRaw = (float) $saleItems->sum(function ($item) {
                 return max(0, (float) $item->quantity);
@@ -688,6 +864,19 @@ class ReportingController extends Controller
 
             $achieved = $isAssigned ? min($target, $achievedRaw) : null;
             $percentage = $isAssigned ? min(100, round(($achieved / $target) * 100)) : null;
+
+            $commission = 0;
+            if ($isAssigned) {
+                foreach ($saleItems as $item) {
+                    $dateKey = (string) $item->date;
+                    if (!array_key_exists($dateKey, $rateCache)) {
+                        $rateCache[$dateKey] = CommissionHelper::rateFor('sales_staff', $item->date);
+                    }
+                    $rate = $rateCache[$dateKey];
+                    $commission += (max(0, (float) $item->quantity) * max(0, (float) $item->price) * $rate) / 100;
+                }
+                $commission = round($commission, 2);
+            }
 
             $staffData[] = [
                 'staff_id' => $staff->id,
@@ -698,29 +887,56 @@ class ReportingController extends Controller
                 'remaining' => $isAssigned ? max($target - $achieved, 0) : null,
                 'achievement_percentage' => $percentage ?? -1,
                 'remaining_percentage' => $isAssigned ? (100 - $percentage) : null,
-                'commission' => $isAssigned ? CommissionHelper::sumProducts('sales_staff', $saleItems) : 0,
+                'commission' => $commission,
             ];
         }
 
         return $this->rankBy($staffData, 'achievement_percentage');
     }
 
-    private function achievedQtyForBranch(string $branchName, string $category, Carbon $from, Carbon $to): int
+    private function warmAchievedQtyIndex($branchNames, Carbon $from, Carbon $to): void
     {
-        $achieved = 0;
-        $items = SaleItem::whereHas('sale', function ($q) use ($branchName, $from, $to) {
-            $q->where('shop_name', $branchName)
-                ->whereBetween('date', [$from, $to]);
-        })->get();
+        if ($this->achievedQtyIndex !== null) {
+            return;
+        }
+
+        $branchNames = collect($branchNames)->filter()->unique()->values();
+        $this->achievedQtyIndex = [];
+
+        if ($branchNames->isEmpty()) {
+            return;
+        }
+
+        foreach ($branchNames as $name) {
+            $this->achievedQtyIndex[$name] = [
+                'garments' => 0,
+                'unstitched' => 0,
+                'accessories' => 0,
+            ];
+        }
+
+        $items = SaleItem::query()
+            ->select(['sale_items.category', 'sale_items.quantity', 'sales.shop_name'])
+            ->join('sales', 'sales.invoice_id', '=', 'sale_items.invoice_id')
+            ->whereIn('sales.shop_name', $branchNames->all())
+            ->whereBetween('sales.date', [$from, $to])
+            ->get();
 
         foreach ($items as $item) {
             $bucket = $this->mapCategoryBucket(strtolower(trim($item->category ?? '')));
-            if ($bucket === $category) {
-                $achieved += max(0, (int) $item->quantity);
+            if ($bucket && isset($this->achievedQtyIndex[$item->shop_name][$bucket])) {
+                $this->achievedQtyIndex[$item->shop_name][$bucket] += max(0, (int) $item->quantity);
             }
         }
+    }
 
-        return $achieved;
+    private function achievedQtyForBranch(string $branchName, string $category, Carbon $from, Carbon $to): int
+    {
+        if ($this->achievedQtyIndex === null) {
+            $this->warmAchievedQtyIndex([$branchName], $from, $to);
+        }
+
+        return (int) ($this->achievedQtyIndex[$branchName][$category] ?? 0);
     }
 
     private function mapCategoryBucket(string $itemCategory): ?string

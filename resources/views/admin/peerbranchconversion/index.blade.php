@@ -14,7 +14,7 @@
                             <div class="card-body">
                                 <form method="GET" action="{{ route('peer.branch.conversion.index') }}" class="mb-4">
                                     <div class="row align-items-end">
-                                        <div class="col-md-5 mb-3">
+                                        <div class="col-md-4 mb-3">
                                             <label for="id">Branch Manager</label>
                                             <select name="id" id="id" class="form-control select2" required>
                                                 <option value="">Select Branch Manager</option>
@@ -26,7 +26,7 @@
                                             </select>
                                         </div>
 
-                                        <div class="col-md-4 mb-3">
+                                        <div class="col-md-2 mb-3">
                                             <label for="period">Period</label>
                                             <select name="period" id="period" class="form-control" required>
                                                 <option value="weekly" {{ $period === 'weekly' ? 'selected' : '' }}>Weekly</option>
@@ -34,10 +34,23 @@
                                             </select>
                                         </div>
 
-                                        <div class="col-md-3 mb-3">
+                                        <div class="col-md-2 mb-3">
+                                            <label for="from_date">From Date</label>
+                                            <input type="date" name="from_date" id="from_date" class="form-control"
+                                                   value="{{ $from_date ?? '' }}">
+                                        </div>
+
+                                        <div class="col-md-2 mb-3">
+                                            <label for="to_date">To Date</label>
+                                            <input type="date" name="to_date" id="to_date" class="form-control"
+                                                   value="{{ $to_date ?? '' }}">
+                                        </div>
+
+                                        <div class="col-md-2 mb-3">
                                             <button type="submit" class="btn btn-primary btn-block">Filter</button>
                                         </div>
                                     </div>
+                                    <small class="text-muted">Optional: set From/To date to override the period range.</small>
                                 </form>
 
                                 @if ($selected)
@@ -118,6 +131,91 @@ $(document).ready(function () {
             placeholder: 'Select Branch Manager'
         });
     }
+
+    function todayYmd() {
+        const d = new Date();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return d.getFullYear() + '-' + m + '-' + day;
+    }
+
+    function applyDateLimits() {
+        const today = todayYmd();
+        $('#from_date').attr('max', today);
+        $('#to_date').attr('max', today);
+
+        const from = ($('#from_date').val() || '').trim();
+        if (from) {
+            $('#to_date').attr('min', from);
+        } else {
+            $('#to_date').removeAttr('min');
+        }
+
+        const to = ($('#to_date').val() || '').trim();
+        if (to) {
+            $('#from_date').attr('max', to < today ? to : today);
+        } else {
+            $('#from_date').attr('max', today);
+        }
+    }
+
+    function validateDateSelection(changedId) {
+        const today = todayYmd();
+        let from = ($('#from_date').val() || '').trim();
+        let to = ($('#to_date').val() || '').trim();
+
+        if (to && to > today) {
+            $('#to_date').val(today);
+            to = today;
+            if (typeof toastr !== 'undefined') {
+                toastr.error('To Date cannot be after today.');
+            }
+        }
+
+        if (from && from > today) {
+            $('#from_date').val(today);
+            from = today;
+            if (typeof toastr !== 'undefined') {
+                toastr.error('From Date cannot be after today.');
+            }
+        }
+
+        if (from && to && from >= to) {
+            if (changedId === 'from_date') {
+                $('#from_date').val('');
+                if (typeof toastr !== 'undefined') {
+                    toastr.error('From Date must be less than To Date.');
+                }
+            } else {
+                $('#to_date').val('');
+                if (typeof toastr !== 'undefined') {
+                    toastr.error('To Date must be greater than From Date.');
+                }
+            }
+        }
+
+        applyDateLimits();
+    }
+
+    applyDateLimits();
+
+    $('#period').on('change', function () {
+        if (($(this).val() || '').trim()) {
+            $('#from_date').val('');
+            $('#to_date').val('');
+            applyDateLimits();
+        }
+    });
+
+    $('#from_date, #to_date').on('change input', function () {
+        if (($('#from_date').val() || '').trim() || ($('#to_date').val() || '').trim()) {
+            // keep period if required on this page — clear only when both dates set
+            if (($('#from_date').val() || '').trim() && ($('#to_date').val() || '').trim()) {
+                // optional: leave period as-is for peer (period still required in UI)
+            }
+        }
+        validateDateSelection(this.id);
+    });
 
     @if ($selected && count($rows))
         $('#table_id_events').DataTable({
