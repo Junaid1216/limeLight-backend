@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Helpers\CommissionHelper;
 use App\Http\Controllers\Controller;
 use App\Models\Commission;
+use App\Models\Designation;
 use Illuminate\Http\Request;
 
 class CommissionController extends Controller
@@ -12,7 +13,9 @@ class CommissionController extends Controller
     public function index()
     {
         $commissions = Commission::latest()->get();
-        return view('admin.commission.index', compact('commissions'));
+        $designations = Designation::orderBy('name')
+        ->get(['id', 'name']);
+        return view('admin.commission.index', compact('commissions', 'designations'));
     }
 
     public function store(Request $request)

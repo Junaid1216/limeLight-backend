@@ -119,6 +119,7 @@
                                             <thead>
                                                 <tr>
                                                     <th>Sr.</th>
+                                                    <th>Sales ID</th>
                                                     <th>Invoice ID</th>
                                                     <th>Branch</th>
                                                     <th>Date</th>
@@ -138,6 +139,7 @@
                                                 @forelse ($rows as $row)
                                                     <tr>
                                                         <td>{{ $loop->iteration }}</td>
+                                                        <td>{{ $row['sales_id'] }}</td>
                                                         <td>{{ $row['invoice_id'] }}</td>
                                                         <td>{{ $row['branch'] ?? '-' }}</td>
                                                         <td>{{ $row['date'] ?? '-' }}</td>

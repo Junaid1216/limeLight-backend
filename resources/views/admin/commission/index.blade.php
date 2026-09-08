@@ -22,16 +22,42 @@
 
                             <div class="col-md-6">
                                 <div class="form-group mb-2">
-                                    <label>Role</label>
+                                    <label>Designation</label>
 
                                     <select name="role" class="form-control" required>
-                                        <option value="">Select Role</option>
-                                        <option value="branch_manager">
-                                            Branch Manager
-                                        </option>
-                                        <option value="sales_staff">
-                                            Sales Staff
-                                        </option>
+                                        <option value="">Select Designation</option>
+
+                                        @foreach($designations as $designation)
+                                            @php
+                                                $designationName = strtolower(trim($designation->name));
+
+                                                $role = match ($designationName) {
+                                                    'branch manager sales - a' => 'branch_manager_sales_a',
+                                                    'branch manager sales - b' => 'branch_manager_sales_b',
+                                                    'branch manager sales - c' => 'branch_manager_sales_c',
+                                                    'branch manager sales - d' => 'branch_manager_sales_d',
+
+                                                    'sales staff' => 'sales_staff',
+
+                                                    'assistant branch manager' => 'assistant_branch_manager',
+
+                                                    'inventory manager - a' => 'inventory_manager_a',
+                                                    'inventory manager - b' => 'inventory_manager_b',
+                                                    'inventory manager - c' => 'inventory_manager_c',
+
+                                                    // Exclude Area Sales Manager
+                                                    'area sales manager' => null,
+
+                                                    default => null,
+                                                };
+                                            @endphp
+
+                                            @if($role)
+                                                <option value="{{ $role }}">
+                                                    {{ $designation->name }}
+                                                </option>
+                                            @endif
+                                        @endforeach
                                     </select>
                                 </div>
                             </div>

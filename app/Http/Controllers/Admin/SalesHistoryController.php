@@ -195,7 +195,7 @@ class SalesHistoryController extends Controller
             $to
         )
             ->orderByDesc('date')
-            ->get(['id', 'invoice_id', 'shop_name', 'date', 'net_total']);
+            ->get(['id','sales_id','invoice_id', 'shop_name', 'date', 'net_total']);
 
         $rows = [];
         $summary = $this->emptySummary();
@@ -208,6 +208,7 @@ class SalesHistoryController extends Controller
             $staffCodes = $sale->items->pluck('salesperson_code')->filter()->unique()->implode(', ');
 
             $rows[] = [
+                'sales_id' => $sale->sales_id,
                 'invoice_id' => $sale->invoice_id,
                 'branch' => $sale->shop_name,
                 'date' => $sale->date,
@@ -239,7 +240,7 @@ class SalesHistoryController extends Controller
             $to
         )
             ->orderByDesc('date')
-            ->get(['id', 'invoice_id', 'shop_name', 'date', 'net_total']);
+            ->get(['id','sales_id','invoice_id', 'shop_name', 'date', 'net_total']);
 
         $rateCache = [];
         $rows = [];
@@ -265,6 +266,7 @@ class SalesHistoryController extends Controller
             }), 2);
 
             $rows[] = [
+                'sales_id' => $sale->sales_id,
                 'invoice_id' => $sale->invoice_id,
                 'branch' => $sale->shop_name,
                 'date' => $sale->date,
@@ -302,7 +304,7 @@ class SalesHistoryController extends Controller
             $to
         )
             ->orderByDesc('date')
-            ->get(['id', 'invoice_id', 'shop_name', 'date', 'net_total']);
+            ->get(['id', 'sales_id', 'invoice_id', 'shop_name', 'date', 'net_total']);
 
         $slabs = Slab::orderBy('from_amount')->get(['from_amount', 'to_amount', 'incentive_amount']);
         $rateCache = [];
@@ -336,6 +338,7 @@ class SalesHistoryController extends Controller
             }
 
             $rows[] = [
+                'sales_id' => $sale->sales_id,
                 'invoice_id' => $sale->invoice_id,
                 'branch' => $sale->shop_name,
                 'date' => $sale->date,
