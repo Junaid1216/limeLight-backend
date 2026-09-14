@@ -79,7 +79,7 @@ class SalesHistoryController extends Controller
             } elseif ($role === 'branch_manager') {
                 $selected = $branchManagers->firstWhere('id', (int) $id);
                 if ($selected) {
-                    $selected->loadMissing('branch:id,name');
+                    $selected->loadMissing(['branch:id,name', 'designation:id,name']);
                     [$rows, $summary] = $this->branchManagerSales($selected, $from, $to);
                 }
             } elseif ($role === 'sale_staff') {
@@ -105,6 +105,75 @@ class SalesHistoryController extends Controller
             'rows',
             'summary'
         ));
+    }
+
+    /**
+     * Prefer sale_key items when present; otherwise fall back to invoice_id (legacy rows).
+     * When falling back, prefer keyed item rows so NULL+keyed duplicates are not double-counted.
+     */
+    private function resolveSaleItems(Sale $sale)
+    {
+        $hasKey = $sale->sale_key !== null && $sale->sale_key !== '';
+
+        if ($hasKey) {
+            $items = $sale->relationLoaded('items') ? $sale->items : $sale->items()->get();
+            if ($items->isNotEmpty()) {
+                return $items;
+            }
+        }
+
+        $items = $sale->relationLoaded('itemsByInvoice')
+            ? $sale->itemsByInvoice
+            : $sale->itemsByInvoice()->get();
+
+        $keyed = $items->filter(function ($item) {
+            return $item->sale_key !== null && $item->sale_key !== '';
+        });
+
+        if ($keyed->isNotEmpty()) {
+            if ($sale->shop_name) {
+                $byShop = $keyed->filter(function ($item) use ($sale) {
+                    return empty($item->shop_name) || $item->shop_name === $sale->shop_name;
+                });
+                if ($byShop->isNotEmpty()) {
+                    return $byShop->values();
+                }
+            }
+
+            return $keyed->values();
+        }
+
+        return $items->filter(function ($item) {
+            return $item->sale_key === null || $item->sale_key === '';
+        })->values();
+    }
+
+    /**
+     * Same shop+invoice can exist twice (legacy NULL sale_key + synced sale_key).
+     * Keep the keyed row; keep NULL-key only when no keyed sibling exists.
+     */
+    private function dedupeSales($sales)
+    {
+        $keyedPairs = [];
+        foreach ($sales as $sale) {
+            if ($sale->sale_key !== null && $sale->sale_key !== '') {
+                $keyedPairs[$this->saleDedupeKey($sale)] = true;
+            }
+        }
+
+        return $sales->filter(function ($sale) use ($keyedPairs) {
+            $hasKey = $sale->sale_key !== null && $sale->sale_key !== '';
+            if ($hasKey) {
+                return true;
+            }
+
+            return !isset($keyedPairs[$this->saleDedupeKey($sale)]);
+        })->values();
+    }
+
+    private function saleDedupeKey(Sale $sale): string
+    {
+        return strtolower(trim((string) $sale->shop_name)) . '|' . trim((string) $sale->invoice_id);
     }
 
     private function resolveDateRange(string $period, ?string $fromDate, ?string $toDate): array
@@ -189,23 +258,32 @@ class SalesHistoryController extends Controller
         }
 
         $sales = $this->applySaleDateFilter(
-            Sale::with(['items:id,invoice_id,quantity,salesperson_name,salesperson_code'])
-                ->whereIn('shop_name', $branchNames),
+            Sale::with([
+                'items:id,sale_key,invoice_id,quantity,tax,price,salesperson_name,salesperson_code',
+                'itemsByInvoice:id,sale_key,invoice_id,quantity,tax,price,salesperson_name,salesperson_code',
+            ])->whereIn('shop_name', $branchNames),
             $from,
             $to
         )
             ->orderByDesc('date')
-            ->get(['id','sales_id','invoice_id', 'shop_name', 'date', 'net_total']);
+            ->get(['id','sales_id','invoice_id', 'sale_key', 'shop_name', 'date', 'net_total']);
+
+        $sales = $this->dedupeSales($sales);
 
         $rows = [];
         $summary = $this->emptySummary();
 
         foreach ($sales as $sale) {
-            $qty = $sale->items->sum(function ($item) {
+            $items = $this->resolveSaleItems($sale);
+            $qty = $items->sum(function ($item) {
                 return max(0, (int) $item->quantity);
             });
-            $staffNames = $sale->items->pluck('salesperson_name')->filter()->unique()->implode(', ');
-            $staffCodes = $sale->items->pluck('salesperson_code')->filter()->unique()->implode(', ');
+            $staffNames = $items->pluck('salesperson_name')->filter()->unique()->implode(', ');
+            $staffCodes = $items->pluck('salesperson_code')->filter()->unique()->implode(', ');
+            $amount = $items->sum(function ($item) {
+                return max(0, (float) $item->price) + max(0, (int) $item->tax);
+            });
+            
 
             $rows[] = [
                 'sales_id' => $sale->sales_id,
@@ -214,11 +292,11 @@ class SalesHistoryController extends Controller
                 'date' => $sale->date,
                 'salesperson' => $this->formatSalesperson($staffNames, $staffCodes),
                 'quantity' => $qty,
-                'amount' => (float) $sale->net_total,
+                'amount' => $amount,
             ];
 
             $summary['invoices']++;
-            $summary['total_sales'] += (float) $sale->net_total;
+            $summary['total_sales'] += $amount;
             $summary['quantity'] += $qty;
         }
 
@@ -234,34 +312,39 @@ class SalesHistoryController extends Controller
         }
 
         $sales = $this->applySaleDateFilter(
-            Sale::with(['items:id,invoice_id,quantity,price,salesperson_name,salesperson_code'])
-                ->where('shop_name', $branch->name),
+            Sale::with([
+                'items:id,sale_key,invoice_id,quantity,tax,price,salesperson_name,salesperson_code',
+                'itemsByInvoice:id,sale_key,invoice_id,quantity,tax,price,salesperson_name,salesperson_code',
+            ])->where('shop_name', $branch->name),
             $from,
             $to
         )
             ->orderByDesc('date')
-            ->get(['id','sales_id','invoice_id', 'shop_name', 'date', 'net_total']);
+            ->get(['id', 'sales_id', 'invoice_id', 'sale_key', 'shop_name', 'date', 'net_total']);
 
+        $sales = $this->dedupeSales($sales);
         $rateCache = [];
         $rows = [];
         $summary = $this->emptySummary();
 
         foreach ($sales as $sale) {
-            $qty = $sale->items->sum(function ($item) {
+            $items = $this->resolveSaleItems($sale);
+            $qty = $items->sum(function ($item) {
                 return max(0, (int) $item->quantity);
             });
-            $staffNames = $sale->items->pluck('salesperson_name')->filter()->unique()->implode(', ');
-            $staffCodes = $sale->items->pluck('salesperson_code')->filter()->unique()->implode(', ');
-            $amount = $sale->items->sum(function ($item) {
-                return max(0, (float) $item->price) * max(0, (int) $item->quantity);
+            $staffNames = $items->pluck('salesperson_name')->filter()->unique()->implode(', ');
+            $staffCodes = $items->pluck('salesperson_code')->filter()->unique()->implode(', ');
+            $amount = $items->sum(function ($item) {
+                return max(0, (float) $item->price) + max(0, (int) $item->tax);
             });
 
             $dateKey = (string) $sale->date;
             if (!array_key_exists($dateKey, $rateCache)) {
-                $rateCache[$dateKey] = CommissionHelper::rateFor('branch_manager', $sale->date);
+                $rateCache[$dateKey] = CommissionHelper::rateForBranchManager($manager, $sale->date);
             }
+            
             $rate = $rateCache[$dateKey];
-            $commission = round($sale->items->sum(function ($item) use ($rate) {
+            $commission = round($items->sum(function ($item) use ($rate) {
                 return (max(0, (float) $item->quantity) * max(0, (float) $item->price) * $rate) / 100;
             }), 2);
 
@@ -293,18 +376,38 @@ class SalesHistoryController extends Controller
             return [[], $this->emptySummary()];
         }
 
+        $itemCols = ['id', 'sale_key', 'invoice_id', 'quantity', 'price', 'salesperson_code','tax'];
+
         $sales = $this->applySaleDateFilter(
-            Sale::with(['items' => function ($q) use ($staff) {
-                $q->where('salesperson_code', $staff->employee_id)
-                    ->select(['id', 'invoice_id', 'quantity', 'price', 'salesperson_code']);
-            }])->whereHas('items', function ($q) use ($staff) {
-                $q->where('salesperson_code', $staff->employee_id);
+            Sale::with([
+                'items' => function ($q) use ($staff, $itemCols) {
+                    $q->where('salesperson_code', $staff->employee_id)->select($itemCols);
+                },
+                'itemsByInvoice' => function ($q) use ($staff, $itemCols) {
+                    $q->where('salesperson_code', $staff->employee_id)->select($itemCols);
+                },
+            ])->where(function ($q) use ($staff) {
+                $q->where(function ($q2) use ($staff) {
+                    $q2->whereNotNull('sale_key')
+                        ->where('sale_key', '!=', '')
+                        ->whereHas('items', function ($iq) use ($staff) {
+                            $iq->where('salesperson_code', $staff->employee_id);
+                        });
+                })->orWhere(function ($q2) use ($staff) {
+                    $q2->where(function ($q3) {
+                        $q3->whereNull('sale_key')->orWhere('sale_key', '');
+                    })->whereHas('itemsByInvoice', function ($iq) use ($staff) {
+                        $iq->where('salesperson_code', $staff->employee_id);
+                    });
+                });
             }),
             $from,
             $to
         )
             ->orderByDesc('date')
-            ->get(['id', 'sales_id', 'invoice_id', 'shop_name', 'date', 'net_total']);
+            ->get(['id', 'sales_id', 'invoice_id', 'sale_key', 'shop_name', 'date', 'net_total']);
+
+        $sales = $this->dedupeSales($sales);
 
         $slabs = Slab::orderBy('from_amount')->get(['from_amount', 'to_amount', 'incentive_amount']);
         $rateCache = [];
@@ -312,11 +415,12 @@ class SalesHistoryController extends Controller
         $summary = $this->emptySummary();
 
         foreach ($sales as $sale) {
-            $qty = $sale->items->sum(function ($item) {
+            $items = $this->resolveSaleItems($sale);
+            $qty = $items->sum(function ($item) {
                 return max(0, (int) $item->quantity);
             });
-            $amount = $sale->items->sum(function ($item) {
-                return (float) $item->price * max(0, (int) $item->quantity);
+            $amount = $items->sum(function ($item) {
+                return (float) $item->price + max(0, (int) $item->tax);
             });
 
             $dateKey = (string) $sale->date;
@@ -324,7 +428,7 @@ class SalesHistoryController extends Controller
                 $rateCache[$dateKey] = CommissionHelper::rateFor('sales_staff', $sale->date);
             }
             $rate = $rateCache[$dateKey];
-            $commission = round($sale->items->sum(function ($item) use ($rate) {
+            $commission = round($items->sum(function ($item) use ($rate) {
                 return (max(0, (float) $item->quantity) * max(0, (float) $item->price) * $rate) / 100;
             }), 2);
 

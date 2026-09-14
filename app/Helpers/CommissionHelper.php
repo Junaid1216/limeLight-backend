@@ -2,12 +2,117 @@
 
 namespace App\Helpers;
 
+use App\Models\BranchManager;
 use App\Models\Commission;
 use App\Models\CommissionHistory;
 use Carbon\Carbon;
 
 class CommissionHelper
 {
+    /**
+     * Designation display name (lowercase) → commissions.role key.
+     * Must stay in sync with admin Commissions form options.
+     */
+    private static $designationRoleMap = [
+        'branch manager sales - a' => 'branch_manager_sales_a',
+        'branch manager sales - b' => 'branch_manager_sales_b',
+        'branch manager sales - c' => 'branch_manager_sales_c',
+        'branch manager sales - d' => 'branch_manager_sales_d',
+        'branch manager sales - e' => 'branch_manager_sales_e',
+        'sales staff' => 'sales_staff',
+        'assistant branch manager' => 'assistant_branch_manager',
+        'inventory manager - a' => 'inventory_manager_a',
+        'inventory manager - b' => 'inventory_manager_b',
+        'inventory manager - c' => 'inventory_manager_c',
+        // Legacy catch-all designation / role
+        'branch manager' => 'branch_manager',
+    ];
+
+    /**
+     * Role key → human label for admin lists.
+     */
+    private static $roleLabels = [
+        'branch_manager_sales_a' => 'Branch Manager Sales - A',
+        'branch_manager_sales_b' => 'Branch Manager Sales - B',
+        'branch_manager_sales_c' => 'Branch Manager Sales - C',
+        'branch_manager_sales_d' => 'Branch Manager Sales - D',
+        'branch_manager_sales_e' => 'Branch Manager Sales - E',
+        'sales_staff' => 'Sales Staff',
+        'assistant_branch_manager' => 'Assistant Branch Manager',
+        'inventory_manager_a' => 'Inventory Manager - A',
+        'inventory_manager_b' => 'Inventory Manager - B',
+        'inventory_manager_c' => 'Inventory Manager - C',
+        'branch_manager' => 'Branch Manager',
+    ];
+
+    /**
+     * Map a designation name to a commissions.role key.
+     */
+    public static function roleKeyFromDesignationName(?string $name): ?string
+    {
+        if ($name === null) {
+            return null;
+        }
+
+        $key = strtolower(trim($name));
+        if ($key === '' || $key === 'area sales manager') {
+            return null;
+        }
+
+        return self::$designationRoleMap[$key] ?? null;
+    }
+
+    /**
+     * Human-readable label for a stored commission role key.
+     */
+    public static function labelForRole(?string $role): string
+    {
+        if ($role === null || $role === '') {
+            return '-';
+        }
+
+        return self::$roleLabels[$role] ?? $role;
+    }
+
+    /**
+     * Whether any commission rate exists for this role (history or current row).
+     */
+    public static function hasRate(string $role, $at = null): bool
+    {
+        $at = $at ? Carbon::parse($at) : Carbon::now();
+
+        $historyExists = CommissionHistory::query()
+            ->where('role', $role)
+            ->where('effective_from', '<=', $at)
+            ->where(function ($q) use ($at) {
+                $q->whereNull('effective_to')
+                    ->orWhere('effective_to', '>', $at);
+            })
+            ->exists();
+
+        if ($historyExists) {
+            return true;
+        }
+
+        return Commission::where('role', $role)->whereNotNull('commission')->exists();
+    }
+
+    /**
+     * Rate (%) for a branch manager based on their designation.
+     * Falls back to legacy `branch_manager` when designation is missing
+     * or no rate is configured for the mapped designation key.
+     */
+    public static function rateForBranchManager(BranchManager $manager, $at = null): float
+    {
+        $manager->loadMissing('designation');
+        $roleKey = self::roleKeyFromDesignationName(optional($manager->designation)->name);
+
+        if ($roleKey && self::hasRate($roleKey, $at)) {
+            return self::rateFor($roleKey, $at);
+        }
+
+        return self::rateFor('branch_manager', $at);
+    }
     /**
      * Rate (%) that was active at the given sale moment.
      * Admin rate changes only affect sales after the change time.

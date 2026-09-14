@@ -11,7 +11,7 @@ class CreateCommissionHistoriesTable extends Migration
     {
         Schema::create('commission_histories', function (Blueprint $table) {
             $table->id();
-            $table->enum('role', ['branch_manager', 'sales_staff']);
+            $table->string('role', 64);
             $table->decimal('commission', 10, 2);
             $table->timestamp('effective_from');
             $table->timestamp('effective_to')->nullable();

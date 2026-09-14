@@ -29,27 +29,7 @@
 
                                         @foreach($designations as $designation)
                                             @php
-                                                $designationName = strtolower(trim($designation->name));
-
-                                                $role = match ($designationName) {
-                                                    'branch manager sales - a' => 'branch_manager_sales_a',
-                                                    'branch manager sales - b' => 'branch_manager_sales_b',
-                                                    'branch manager sales - c' => 'branch_manager_sales_c',
-                                                    'branch manager sales - d' => 'branch_manager_sales_d',
-
-                                                    'sales staff' => 'sales_staff',
-
-                                                    'assistant branch manager' => 'assistant_branch_manager',
-
-                                                    'inventory manager - a' => 'inventory_manager_a',
-                                                    'inventory manager - b' => 'inventory_manager_b',
-                                                    'inventory manager - c' => 'inventory_manager_c',
-
-                                                    // Exclude Area Sales Manager
-                                                    'area sales manager' => null,
-
-                                                    default => null,
-                                                };
+                                                $role = \App\Helpers\CommissionHelper::roleKeyFromDesignationName($designation->name);
                                             @endphp
 
                                             @if($role)
@@ -118,9 +98,7 @@
                                     <td>{{ $loop->iteration }}</td>
 
                                     <td>
-                                        {{ $commission->role == 'branch_manager'
-                                            ? 'Branch Manager'
-                                            : 'Sales Staff' }}
+                                        {{ \App\Helpers\CommissionHelper::labelForRole($commission->role) }}
                                     </td>
 
                                     <td>{{ $commission->commission }} %</td>
