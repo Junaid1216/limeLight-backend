@@ -392,35 +392,35 @@
                             {{-- Customer Table --}}
                             <div class="training-type-table table-responsive" id="table-customer">
                                 <table class="table responsive table-bordered training-datatable">
-                                    <thead>
-                                        <tr>
-                                            <th>Sr.</th>
-                                            <th>Role</th>
-                                            <th>Title</th>
-                                            <th>Video</th>
-                                            <th>Description</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
+                                <thead>
+                                    <tr>
+                                        <th>Sr.</th>
+                                        <th>Role</th>
+                                        <th>Title</th>
+                                        <th>Video</th>
+                                        <th>Description</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
                                         @forelse($customerVideos as $video)
-                                            <tr>
-                                                <td>{{ $loop->iteration }}</td>
-                                                <td>
+                                    <tr>
+                                        <td>{{ $loop->iteration }}</td>
+                                        <td>
                                                     {{ collect($video->roles)->map(fn($role) => ucwords(str_replace('_',' ',$role)))->implode(', ') }}
-                                                </td>
+                                        </td>
                                                 <td>{{ $video->title ?? 'N/A' }}</td>
                                                 <td>
                                                     @if($video->video_url)
                                                         <a href="{{ $video->video_url }}" target="_blank" class="btn btn-primary btn-sm">View</a>
-                                                    @else
-                                                        N/A
-                                                    @endif
-                                                </td>
+                                            @else
+                                            N/A
+                                            @endif
+                                        </td>
                                                 <td>{{ $video->description ?? 'N/A' }}</td>
                                                 <td>
                                                     @include('admin.trainingvideo.partials.actions', ['video' => $video])
-                                                </td>
+                                        </td>
                                             </tr>
                                         @empty
                                             <tr>
@@ -458,7 +458,7 @@
                                                 <td>{{ $loop->iteration }}</td>
                                                 <td>
                                                     {{ collect($video->roles)->map(fn($role) => ucwords(str_replace('_',' ',$role)))->implode(', ') }}
-                                                </td>
+                                        </td>
                                                 <td>{{ $video->product_name ?? 'N/A' }}</td>
                                                 <td>{{ $video->product_code ?? 'N/A' }}</td>
                                                 <td>{{ $video->price ?? 'N/A' }}</td>
@@ -471,22 +471,22 @@
                                                 <td>
                                                     @if ($video->image && file_exists($video->image))
                                                         <img src="{{ asset($video->image) }}" width="50" height="50" alt="Image">
-                                                    @else
+                                            @else
                                                         <img src="{{ asset('public/admin/assets/images/avator.png') }}" width="50" height="50" alt="Default Image">
-                                                    @endif
-                                                </td>
+                                            @endif  
+                                        </td>
                                                 <td>
                                                     @if($video->audio)
                                                         <audio controls style="width:180px;">
                                                             <source src="{{ asset($video->audio) }}">
                                                         </audio>
-                                                    @else
-                                                        N/A
-                                                    @endif
-                                                </td>
+                                            @else
+                                            N/A
+                                            @endif
+                                        </td>
                                                 <td>
                                                     @include('admin.trainingvideo.partials.actions', ['video' => $video])
-                                                </td>
+                                        </td>
                                             </tr>
                                         @empty
                                             <tr>
@@ -518,37 +518,37 @@
                                                 <td>{{ $loop->iteration }}</td>
                                                 <td>
                                                     {{ collect($video->roles)->map(fn($role) => ucwords(str_replace('_',' ',$role)))->implode(', ') }}
-                                                </td>
+                                        </td>
                                                 <td>{{ $video->category ? ucfirst($video->category) : 'N/A' }}</td>
                                                 <td>{{ $video->title ?? 'N/A' }}</td>
                                                 <td>{{ $video->description ?? 'N/A' }}</td>
-                                                <td>
+                                        <td>
                                                     @if ($video->image && file_exists($video->image))
                                                         <img src="{{ asset($video->image) }}" width="50" height="50" alt="Image">
                                                     @else
                                                         <img src="{{ asset('public/admin/assets/images/avator.png') }}" width="50" height="50" alt="Default Image">
                                                     @endif
                                                 </td>
-                                                <td>
-                                                    @if($video->audio)
+                                        <td>
+                                            @if($video->audio)
                                                         <audio controls style="width:180px;">
-                                                            <source src="{{ asset($video->audio) }}">
-                                                        </audio>
-                                                    @else
-                                                        N/A
-                                                    @endif
-                                                </td>
+                                                    <source src="{{ asset($video->audio) }}">
+                                                </audio>
+                                                @else
+                                                N/A
+                                            @endif
+                                        </td>
                                                 <td>
                                                     @include('admin.trainingvideo.partials.actions', ['video' => $video])
-                                                </td>
-                                            </tr>
+                                        </td>
+                                    </tr>
                                         @empty
                                             <tr>
                                                 <td colspan="8" class="text-center">No display training modules found.</td>
                                             </tr>
                                         @endforelse
-                                    </tbody>
-                                </table>
+                                </tbody>
+                            </table>
                             </div>
 
                         </div>
@@ -789,42 +789,42 @@ $(document).ready(function () {
     */
     $(document).on('click', '.show_confirm', function (event) {
 
-        event.preventDefault();
+                event.preventDefault();
 
         let formId = $(this).data('form');
         let form = document.getElementById(formId);
 
-        Swal.fire({
-            title: 'Are you sure you want to delete this record?',
+                Swal.fire({
+                    title: 'Are you sure you want to delete this record?',
             text: 'If you delete this Training Module record, it will be gone forever.',
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#3085d6',
-            cancelButtonColor: '#d33',
-            confirmButtonText: 'Yes, delete it!'
-        }).then((result) => {
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#3085d6',
+                    cancelButtonColor: '#d33',
+                    confirmButtonText: 'Yes, delete it!'
+                }).then((result) => {
 
-            if (result.isConfirmed) {
+                    if (result.isConfirmed) {
 
-                $.ajax({
+                        $.ajax({
 
-                    url: form.action,
+                            url: form.action,
 
-                    method: 'POST',
+                            method: 'POST',
 
-                    data: {
-                        _method: 'DELETE',
-                        _token: '{{ csrf_token() }}'
-                    },
+                            data: {
+                                _method: 'DELETE',
+                                _token: '{{ csrf_token() }}'
+                            },
 
                     success: function () {
 
-                        Swal.fire({
-                            icon: 'success',
-                            title: 'Success!',
-                            text: 'Record deleted successfully.',
-                            showConfirmButton: false,
-                            timer: 2000
+                                Swal.fire({
+                                    icon: 'success',
+                                    title: 'Success!',
+                                    text: 'Record deleted successfully.',
+                                    showConfirmButton: false,
+                                    timer: 2000
                         }).then(() => {
 
                             location.reload();
@@ -845,11 +845,11 @@ $(document).ready(function () {
 
                 });
 
-            }
-
-        });
+        }
 
     });
+
+});
 
 
     /*

@@ -45,7 +45,7 @@ class SalesHistoryController extends Controller
         }
 
         $asms = AreaSaleManager::orderBy('name')->get(['id', 'name', 'region_id']);
-        $branchManagers = BranchManager::orderBy('name')->get(['id', 'name', 'branch_id']);
+        $branchManagers = BranchManager::orderBy('name')->get(['id', 'name', 'branch_id', 'designation_id']);
         $saleStaff = SaleStaff::orderBy('name')->get(['id', 'name', 'employee_id', 'branch_id']);
 
         $asmOptions = $asms->map(function ($a) {
@@ -259,8 +259,8 @@ class SalesHistoryController extends Controller
 
         $sales = $this->applySaleDateFilter(
             Sale::with([
-                'items:id,sale_key,invoice_id,quantity,tax,price,salesperson_name,salesperson_code',
-                'itemsByInvoice:id,sale_key,invoice_id,quantity,tax,price,salesperson_name,salesperson_code',
+                'items:id,sale_key,invoice_id,quantity,tax,price,discount,salesperson_name,salesperson_code',
+                'itemsByInvoice:id,sale_key,invoice_id,quantity,tax,price,discount,salesperson_name,salesperson_code',
             ])->whereIn('shop_name', $branchNames),
             $from,
             $to
@@ -280,8 +280,12 @@ class SalesHistoryController extends Controller
             });
             $staffNames = $items->pluck('salesperson_name')->filter()->unique()->implode(', ');
             $staffCodes = $items->pluck('salesperson_code')->filter()->unique()->implode(', ');
-            $amount = $items->sum(function ($item) {
-                return max(0, (float) $item->price) + max(0, (int) $item->tax);
+                $amount = $items->sum(function ($item) {
+                $price = max(0, (float) $item->price);
+                $discount = max(0, (float) $item->discount);
+                $quantity = max(0, (int) $item->quantity);
+
+                return ($price - $discount) * $quantity;
             });
             
 
@@ -313,8 +317,8 @@ class SalesHistoryController extends Controller
 
         $sales = $this->applySaleDateFilter(
             Sale::with([
-                'items:id,sale_key,invoice_id,quantity,tax,price,salesperson_name,salesperson_code',
-                'itemsByInvoice:id,sale_key,invoice_id,quantity,tax,price,salesperson_name,salesperson_code',
+                'items:id,sale_key,invoice_id,quantity,tax,price,discount,salesperson_name,salesperson_code',
+                'itemsByInvoice:id,sale_key,invoice_id,quantity,tax,price,discount,salesperson_name,salesperson_code',
             ])->where('shop_name', $branch->name),
             $from,
             $to
@@ -335,7 +339,11 @@ class SalesHistoryController extends Controller
             $staffNames = $items->pluck('salesperson_name')->filter()->unique()->implode(', ');
             $staffCodes = $items->pluck('salesperson_code')->filter()->unique()->implode(', ');
             $amount = $items->sum(function ($item) {
-                return max(0, (float) $item->price) + max(0, (int) $item->tax);
+                $price = max(0, (float) $item->price);
+                $discount = max(0, (float) $item->discount);
+                $quantity = max(0, (int) $item->quantity);
+
+                return ($price - $discount) * $quantity;
             });
 
             $dateKey = (string) $sale->date;
@@ -345,7 +353,13 @@ class SalesHistoryController extends Controller
             
             $rate = $rateCache[$dateKey];
             $commission = round($items->sum(function ($item) use ($rate) {
-                return (max(0, (float) $item->quantity) * max(0, (float) $item->price) * $rate) / 100;
+                $price = max(0, (float) $item->price);
+                $discount = max(0, (float) $item->discount);
+                $quantity = max(0, (int) $item->quantity);
+
+                $salesAmount = ($price - $discount) * $quantity;
+
+                return ($salesAmount * $rate) / 100;
             }), 2);
 
             $rows[] = [
@@ -376,7 +390,7 @@ class SalesHistoryController extends Controller
             return [[], $this->emptySummary()];
         }
 
-        $itemCols = ['id', 'sale_key', 'invoice_id', 'quantity', 'price', 'salesperson_code','tax'];
+        $itemCols = ['id', 'sale_key', 'invoice_id', 'quantity', 'price', 'discount', 'salesperson_code','tax'];
 
         $sales = $this->applySaleDateFilter(
             Sale::with([
@@ -420,7 +434,11 @@ class SalesHistoryController extends Controller
                 return max(0, (int) $item->quantity);
             });
             $amount = $items->sum(function ($item) {
-                return (float) $item->price + max(0, (int) $item->tax);
+                $price = max(0, (float) $item->price);
+                $discount = max(0, (float) $item->discount);
+                $quantity = max(0, (int) $item->quantity);
+
+                return ($price - $discount) * $quantity;
             });
 
             $dateKey = (string) $sale->date;
@@ -429,7 +447,13 @@ class SalesHistoryController extends Controller
             }
             $rate = $rateCache[$dateKey];
             $commission = round($items->sum(function ($item) use ($rate) {
-                return (max(0, (float) $item->quantity) * max(0, (float) $item->price) * $rate) / 100;
+                $price = max(0, (float) $item->price);
+                $discount = max(0, (float) $item->discount);
+                $quantity = max(0, (int) $item->quantity);
+
+                $salesAmount = ($price - $discount) * $quantity;
+
+                return ($salesAmount * $rate) / 100;
             }), 2);
 
             $netTotal = (float) $sale->net_total;
