@@ -283,7 +283,7 @@ class SalesHistoryController extends Controller
                 $amount = $items->sum(function ($item) {
                 $price = max(0, (float) $item->price);
                 $discount = max(0, (float) $item->discount);
-                $quantity = max(0, (int) $item->quantity);
+                $quantity =  (int) $item->quantity;
 
                 return ($price - $discount) * $quantity;
             });
@@ -341,7 +341,7 @@ class SalesHistoryController extends Controller
             $amount = $items->sum(function ($item) {
                 $price = max(0, (float) $item->price);
                 $discount = max(0, (float) $item->discount);
-                $quantity = max(0, (int) $item->quantity);
+                $quantity =  (int) $item->quantity;
 
                 return ($price - $discount) * $quantity;
             });
@@ -355,7 +355,7 @@ class SalesHistoryController extends Controller
             $commission = round($items->sum(function ($item) use ($rate) {
                 $price = max(0, (float) $item->price);
                 $discount = max(0, (float) $item->discount);
-                $quantity = max(0, (int) $item->quantity);
+                $quantity = (int) $item->quantity;
 
                 $salesAmount = ($price - $discount) * $quantity;
 
@@ -436,7 +436,7 @@ class SalesHistoryController extends Controller
             $amount = $items->sum(function ($item) {
                 $price = max(0, (float) $item->price);
                 $discount = max(0, (float) $item->discount);
-                $quantity = max(0, (int) $item->quantity);
+                $quantity =  (int) $item->quantity;
 
                 return ($price - $discount) * $quantity;
             });
@@ -449,7 +449,7 @@ class SalesHistoryController extends Controller
             $commission = round($items->sum(function ($item) use ($rate) {
                 $price = max(0, (float) $item->price);
                 $discount = max(0, (float) $item->discount);
-                $quantity = max(0, (int) $item->quantity);
+                $quantity =  (int) $item->quantity;
 
                 $salesAmount = ($price - $discount) * $quantity;
 

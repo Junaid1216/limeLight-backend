@@ -9,7 +9,7 @@ use ZipArchive;
 class SalesDayExcelReport extends Command
 {
     protected $signature = 'report:sales-day-excel
-        {--date=2026-09-15 : Date Y-m-d}
+        {--date=2026-09-16 : Date Y-m-d}
         {--rate=0.25 : Sales staff commission rate percent}
         {--output= : Full path for the .xlsx file}';
 
@@ -51,6 +51,7 @@ class SalesDayExcelReport extends Command
             'Branch',
             'Date',
             'Salesperson Name',
+            'Product',
             'Quantity',
             'Amount',
             'Commission',
@@ -71,6 +72,7 @@ class SalesDayExcelReport extends Command
 
         // Same math as Sales History: amount = (price - discount) * qty
         // commission = amount * rate / 100
+        // Exclude Online Store* branches; Product = distinct product names on the invoice×salesperson group
         $sql = "
             SELECT
                 s.sales_id,
@@ -79,6 +81,7 @@ class SalesDayExcelReport extends Command
                 s.date,
                 si.salesperson_code,
                 MAX(si.salesperson_name) AS salesperson_name,
+                GROUP_CONCAT(DISTINCT NULLIF(TRIM(si.product_name), '') ORDER BY si.product_name SEPARATOR ', ') AS products,
                 SUM(CASE WHEN si.quantity > 0 THEN si.quantity ELSE 0 END) AS qty,
                 SUM(
                     (GREATEST(COALESCE(si.price, 0), 0) - GREATEST(COALESCE(si.discount, 0), 0))
@@ -90,6 +93,8 @@ class SalesDayExcelReport extends Command
               AND s.date <= ?
               AND si.salesperson_code IS NOT NULL
               AND si.salesperson_code != ''
+              AND s.shop_name NOT LIKE 'Online Store%'
+              AND LOWER(TRIM(si.salesperson_name)) != 'return'
             GROUP BY s.invoice_id, s.sales_id, s.shop_name, s.date, si.salesperson_code
             ORDER BY s.date, si.salesperson_code, s.invoice_id
         ";
@@ -118,6 +123,7 @@ class SalesDayExcelReport extends Command
                 (string) ($row->shop_name ?? ''),
                 (string) ($row->date ?? ''),
                 $salesperson,
+                (string) ($row->products ?? ''),
                 (int) $row->qty,
                 $amount,
                 $commission,
@@ -142,7 +148,7 @@ class SalesDayExcelReport extends Command
         fclose($body);
 
         $lastRow = $sr + 1;
-        $widths = [14.28515625, 14.28515625, 28.5703125, 20, 28.5703125, 12, 14.28515625, 14.28515625];
+        $widths = [14.28515625, 14.28515625, 28.5703125, 20, 28.5703125, 40, 12, 14.28515625, 14.28515625];
         $colsXml = '<cols>';
         for ($c = 1; $c <= $colCount; $c++) {
             $w = $widths[$c - 1] ?? 14.28515625;
