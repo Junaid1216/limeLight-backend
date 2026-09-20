@@ -14,31 +14,19 @@
                                 <h4 class="mb-0">Line Items</h4>
 
                                 <div style="width:250px;">
-
                                     <select id="categoryFilter" class="form-control" style="border-radius: 0.2rem;">
-
                                         <option value="">All Categories</option>
-
                                         @foreach ($categories as $category)
-
                                             <option value="{{ $category->name }}">
                                                 {{ $category->name }}
                                             </option>
-
                                         @endforeach
-
                                     </select>
-
                                 </div>
 
                             </div>
 
                         <div class="card-body table-striped table-bordered table-responsive">
-
-                            {{-- Sync Button --}}
-                            {{-- <a class="btn btn-success mb-3" href="{{ route('lineitems.sync') }}">
-                                Sync Line Items
-                            </a> --}}
 
                             <table class="table" id="table_id_events">
                                 <thead>
@@ -51,9 +39,7 @@
                                 </thead>
 
                                 <tbody>
-                                    @foreach ($lineItems->sortBy(function($item) {
-                                                return $item->category->name ?? 'ZZZ';
-                                            }) as $item)
+                                    @foreach ($lineItems as $item)
                                         <tr>
                                             <td>{{ $loop->iteration }}</td>
 
@@ -61,11 +47,20 @@
 
                                             <td>
                                                 <span class="badge badge-info">
+                                                    @if($item->name == 'Non-Tradable')
+                                                        N/A
+                                                    @else
                                                     {{ $item->category->name ?? 'Unassigned' }}
+                                                    @endif
                                                 </span>
                                             </td>
 
                                             <td>
+                                                @if($item->name == 'Non-Tradable')
+                                                    <span class="badge badge-info">
+                                                        N/A
+                                                    </span>
+                                                @else
                                                 <form method="POST"
                                                       action="{{ route('lineitem.update', $item->id) }}"
                                                       class="d-flex align-items-center"
@@ -87,6 +82,7 @@
                                                         <i class="fa fa-save"></i>
                                                     </button>
                                                 </form>
+                                                 @endif
                                             </td>
 
                                         </tr>
@@ -113,24 +109,21 @@
             $('#table_id_events').DataTable().destroy();
         }
 
-        let table = $('#table_id_events').DataTable();
+        let table = $('#table_id_events').DataTable({
+            order: [],
+            orderFixed: [],
+            columnDefs: [
+                { orderable: false, targets: [0, 3] }
+            ]
+        });
 
         // Category Filter
         $('#categoryFilter').on('change', function () {
-
             let value = $(this).val();
-
             table.column(2).search(value).draw();
-
         });
 
     });
 </script>
-
-@if (session('message'))
-<script>
-    toastr.success('{{ session('message') }}');
-</script>
-@endif
 
 @endsection

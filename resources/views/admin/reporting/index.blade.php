@@ -213,19 +213,18 @@ $(document).ready(function () {
             ok = false;
         }
 
-        if (from && to && from >= to) {
+       if (from && to && from > to) {
             if (changedId === 'from_date') {
                 $('#from_date').val('');
                 from = '';
-                showFilterMessage('error', 'From Date must be less than To Date.');
+                showFilterMessage('error', 'From Date cannot be greater than To Date.');
             } else {
                 $('#to_date').val('');
                 to = '';
-                showFilterMessage('error', 'To Date must be greater than From Date.');
+                showFilterMessage('error', 'To Date cannot be less than From Date.');
             }
             ok = false;
         }
-
         applyDateLimits();
         return ok;
     }
@@ -283,9 +282,9 @@ $(document).ready(function () {
             return false;
         }
 
-        if (!period && fromDate && toDate && (fromDate >= toDate || toDate > todayYmd())) {
+       if (!period && fromDate && toDate && (fromDate > toDate || toDate > todayYmd())) {
             e.preventDefault();
-            showFilterMessage('error', 'From Date must be less than To Date, and To Date cannot be after today.');
+            showFilterMessage('error', 'From Date cannot be greater than To Date, and To Date cannot be after today.');
             return false;
         }
 
