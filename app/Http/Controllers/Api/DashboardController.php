@@ -10,6 +10,7 @@ use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\SaleStaff;
 use App\Models\Slab;
+use App\Models\Target;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -132,16 +133,23 @@ class DashboardController extends Controller
             ],
         ];
 
-        $saleItems = SaleItem::with('sale')
-            ->where('salesperson_code', (string) $user->employee_id)
-            ->whereHas('sale', function ($q) use ($branch, $monthNum, $year) {
-                $q->where('shop_name', $branch->name)
-                    ->whereMonth('date', $monthNum)
-                    ->whereYear('date', $year);
-            })
-            ->get(['invoice_id', 'category', 'quantity', 'price']);
+        $from = $now->copy()->startOfMonth()->startOfDay();
+        $to = $now->copy()->endOfMonth()->endOfDay();
 
-        $commissionTotal = 0;
+        $saleItems = SaleItem::query()
+            ->select([
+                'sale_items.invoice_id',
+                'sale_items.category',
+                'sale_items.quantity',
+                'sale_items.price',
+                'sale_items.discount',
+                'sales.date',
+            ])
+            ->join('sales', 'sales.invoice_id', '=', 'sale_items.invoice_id')
+            ->where('sale_items.salesperson_code', (string) $user->employee_id)
+            ->where('sales.shop_name', $branch->name)
+            ->whereBetween('sales.date', [$from, $to])
+            ->get();
 
         foreach ($saleItems as $item) {
             $qty = max(0, (float) $item->quantity);
@@ -151,17 +159,46 @@ class DashboardController extends Controller
                 if (in_array($itemCategory, $mapping, true)) {
                     $sold[$category] += $qty;
                     $totalSale += $qty;
-                    $saleAmount += $qty * max(0, (float) $item->price);
-                    $commissionTotal += CommissionHelper::forProduct(
-                        'sales_staff',
-                        $qty,
-                        $item->price,
-                        optional($item->sale)->date
-                    );
+                    $price = max(0, (float) $item->price);
+                    $discount = max(0, (float) $item->discount);
+                    $saleAmount += ($price - $discount) * $qty;
                     break;
                 }
             }
         }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Commission — same as Sales History sale staff
+        | (price − discount) × qty × sales_staff rate @ sale date
+        | Round per invoice, then sum
+        |--------------------------------------------------------------------------
+        */
+
+        $commissionTotal = 0.0;
+        $rateCache = [];
+
+        foreach ($saleItems->groupBy('invoice_id') as $invoiceItems) {
+            $saleDate = $invoiceItems->first()->date;
+            $dateKey = (string) $saleDate;
+            if (!array_key_exists($dateKey, $rateCache)) {
+                $rateCache[$dateKey] = CommissionHelper::rateFor('sales_staff', $saleDate);
+            }
+            $rate = $rateCache[$dateKey];
+
+            $invoiceCommission = round($invoiceItems->sum(function ($item) use ($rate) {
+                $price = max(0, (float) $item->price);
+                $discount = max(0, (float) $item->discount);
+                $quantity = (int) $item->quantity;
+                $salesAmount = ($price - $discount) * $quantity;
+
+                return ($salesAmount * $rate) / 100;
+            }), 2);
+
+            $commissionTotal += $invoiceCommission;
+        }
+
+        $commissionTotal = round($commissionTotal, 2);
 
         /*
         |--------------------------------------------------------------------------
@@ -342,37 +379,65 @@ class DashboardController extends Controller
             ],
         ];
 
-        $saleItems = SaleItem::with('sale')
-            ->where('salesperson_code', (string) $user->employee_id)
-            ->whereHas('sale', function ($q) use ($branch, $monthNum, $year) {
-                $q->where('shop_name', $branch->name)
-                    ->whereMonth('date', $monthNum)
-                    ->whereYear('date', $year);
-            })
-            ->get(['invoice_id', 'category', 'quantity', 'price']);
+        $from = $now->copy()->startOfMonth()->startOfDay();
+        $to = $now->copy()->endOfMonth()->endOfDay();
+
+        $saleItems = SaleItem::query()
+            ->select([
+                'sale_items.invoice_id',
+                'sale_items.category',
+                'sale_items.quantity',
+                'sale_items.price',
+                'sale_items.discount',
+                'sales.date',
+            ])
+            ->join('sales', 'sales.invoice_id', '=', 'sale_items.invoice_id')
+            ->where('sale_items.salesperson_code', (string) $user->employee_id)
+            ->where('sales.shop_name', $branch->name)
+            ->whereBetween('sales.date', [$from, $to])
+            ->get();
 
         $commissionByCategory = [
-            'garments' => 0,
-            'unstitched' => 0,
-            'accessories' => 0,
+            'garments' => 0.0,
+            'unstitched' => 0.0,
+            'accessories' => 0.0,
         ];
+        $rateCache = [];
 
-        foreach ($saleItems as $item) {
-            $qty = max(0, (float) $item->quantity);
-            $itemCategory = strtolower(trim((string) $item->category));
-            $lineAmount = $qty * max(0, (float) $item->price);
+        foreach ($saleItems->groupBy('invoice_id') as $invoiceItems) {
+            $saleDate = $invoiceItems->first()->date;
+            $dateKey = (string) $saleDate;
+            if (!array_key_exists($dateKey, $rateCache)) {
+                $rateCache[$dateKey] = CommissionHelper::rateFor('sales_staff', $saleDate);
+            }
+            $rate = $rateCache[$dateKey];
 
-            foreach ($categoryMappings as $category => $mapping) {
-                if (in_array($itemCategory, $mapping, true)) {
-                    $achieved[$category] += $qty;
-                    $saleAmountByCategory[$category] += $lineAmount;
-                    $commissionByCategory[$category] += CommissionHelper::forProduct(
-                        'sales_staff',
-                        $qty,
-                        $item->price,
-                        optional($item->sale)->date
-                    );
-                    break;
+            $invoiceByCategory = [
+                'garments' => 0.0,
+                'unstitched' => 0.0,
+                'accessories' => 0.0,
+            ];
+
+            foreach ($invoiceItems as $item) {
+                $qty = max(0, (float) $item->quantity);
+                $itemCategory = strtolower(trim((string) $item->category));
+                $price = max(0, (float) $item->price);
+                $discount = max(0, (float) $item->discount);
+                $lineAmount = ($price - $discount) * $qty;
+
+                foreach ($categoryMappings as $category => $mapping) {
+                    if (in_array($itemCategory, $mapping, true)) {
+                        $achieved[$category] += $qty;
+                        $saleAmountByCategory[$category] += $lineAmount;
+                        $invoiceByCategory[$category] += ($lineAmount * $rate) / 100;
+                        break;
+                    }
+                }
+            }
+
+            foreach ($invoiceByCategory as $category => $amount) {
+                if ($amount != 0.0) {
+                    $commissionByCategory[$category] += round($amount, 2);
                 }
             }
         }
@@ -597,17 +662,17 @@ public function staffComparison(Request $request)
     $branchName = $branch->name ?? '';
 
     $type = strtolower($request->type ?? 'monthly');
+    $now = Carbon::now();
 
-    if ($type === 'monthly') {
-        $from = Carbon::now()->startOfMonth();
-        $to   = Carbon::now()->endOfMonth();
-    } else {
+    if ($type === 'weekly') {
+        [$from, $to] = $this->currentWeekRangeOfMonth();
         $type = 'weekly';
-        $from = Carbon::now()->startOfWeek();
-        $to   = Carbon::now()->endOfWeek();
+    } else {
+        $type = 'monthly';
+        $from = $now->copy()->startOfMonth()->startOfDay();
+        $to = $now->copy()->endOfMonth()->endOfDay();
     }
 
-    $now = Carbon::now();
     $month = $now->format('F');
     $year = (string) $now->year;
     $monthNum = $now->month;
@@ -625,93 +690,199 @@ public function staffComparison(Request $request)
         (int) $year,
     ]));
 
+    $categoryMappings = [
+        'garments' => [
+            'signature', 'flowy', 'trouser', 'regular prints', 'fusion co-ords', 'festive',
+            'composed rotary', 'premium', 'casual', 'glam', 'dailywear', 'regular running',
+            'regular panel', 'modish', 'trendy', 'premium wear', 'tops',
+        ],
+        'unstitched' => [
+            'dupatta - dyed', 'unstitched trousers',
+        ],
+        'accessories' => [
+            'hand bag', 'scarves - printed', 'sunglasses', 'jewellery', 'clutches',
+            'perfumes', 'body mist', 'non-tradable',
+        ],
+    ];
+
     $staffMembers = SaleStaff::where('branch_id', $user->branch_id)->get();
 
+    $branchTargets = Target::where('branch_id', $user->branch_id)
+        ->whereIn('month', array_values(array_unique([
+            $month,
+            strtolower($month),
+            ucfirst(strtolower($month)),
+        ])))
+        ->whereIn('year', $yearVariants)
+        ->get();
+
+    $employeeIds = $staffMembers->pluck('employee_id')
+        ->filter()
+        ->map(function ($id) {
+            return (string) $id;
+        })
+        ->values()
+        ->all();
+
+    $itemsByStaff = collect();
+    if (!empty($employeeIds)) {
+        $items = SaleItem::query()
+            ->select([
+                'sale_items.invoice_id',
+                'sale_items.salesperson_code',
+                'sale_items.category',
+                'sale_items.quantity',
+                'sale_items.price',
+                'sale_items.discount',
+                'sales.date',
+            ])
+            ->join('sales', 'sales.invoice_id', '=', 'sale_items.invoice_id')
+            ->where('sales.shop_name', $branchName)
+            ->whereBetween('sales.date', [$from, $to])
+            ->whereIn('sale_items.salesperson_code', $employeeIds)
+            ->get();
+
+        $itemsByStaff = $items->groupBy(function ($item) {
+            return (string) $item->salesperson_code;
+        });
+    }
+
+    // Commission always uses full current month
+    $monthFrom = $now->copy()->startOfMonth()->startOfDay();
+    $monthTo = $now->copy()->endOfMonth()->endOfDay();
+    $monthlyItemsByStaff = collect();
+    if (!empty($employeeIds)) {
+        $monthlyItems = SaleItem::query()
+            ->select([
+                'sale_items.invoice_id',
+                'sale_items.salesperson_code',
+                'sale_items.quantity',
+                'sale_items.price',
+                'sale_items.discount',
+                'sales.date',
+            ])
+            ->join('sales', 'sales.invoice_id', '=', 'sale_items.invoice_id')
+            ->where('sales.shop_name', $branchName)
+            ->whereBetween('sales.date', [$monthFrom, $monthTo])
+            ->whereIn('sale_items.salesperson_code', $employeeIds)
+            ->get();
+
+        $monthlyItemsByStaff = $monthlyItems->groupBy(function ($item) {
+            return (string) $item->salesperson_code;
+        });
+    }
+
     $rows = [];
+    $rateCache = [];
 
     foreach ($staffMembers as $staff) {
-
         /*
         |--------------------------------------------------------------------------
-        | Assigned Target (current month)
+        | Target / Achieved — same as admin sale staff + BM staff comparison
+        | garments / unstitched / accessories only; cap per category then sum
         |--------------------------------------------------------------------------
         */
 
-        // Only admin-approved targets count as assigned
-        $target = (float) AssignedTarget::where('user_id', $staff->id)
+        $targets = AssignedTarget::where('user_id', $staff->id)
             ->whereIn('month', $monthVariants)
             ->whereIn('year', $yearVariants)
             ->where('status', 'approved')
-            ->sum('target');
+            ->get();
+
+        $assigned = [
+            'garments' => 0.0,
+            'unstitched' => 0.0,
+            'accessories' => 0.0,
+        ];
+
+        foreach ($targets as $assignedTarget) {
+            $key = strtolower(trim((string) $assignedTarget->category));
+            if (isset($assigned[$key])) {
+                $assigned[$key] += max(0, (float) $assignedTarget->target);
+            }
+        }
+
+        foreach ($assigned as $category => $value) {
+            $assigned[$category] = $this->resolveStaffPeriodTarget($value, $branchTargets, $type);
+        }
+
+        $target = array_sum($assigned);
+        $isAssigned = $target > 0;
+
+        $saleItems = $itemsByStaff->get((string) $staff->employee_id, collect());
+
+        $sold = [
+            'garments' => 0.0,
+            'unstitched' => 0.0,
+            'accessories' => 0.0,
+        ];
+
+        foreach ($saleItems as $item) {
+            $itemCategory = strtolower(trim((string) ($item->category ?? '')));
+            foreach ($categoryMappings as $category => $mapping) {
+                if (in_array($itemCategory, $mapping, true)) {
+                    $sold[$category] += max(0, (float) $item->quantity);
+                    break;
+                }
+            }
+        }
+
+        $cappedTotal = 0.0;
+        foreach ($assigned as $category => $catTarget) {
+            if ($catTarget > 0) {
+                $cappedTotal += min($catTarget, $sold[$category]);
+            }
+        }
+
+        $achieved = $isAssigned ? min($target, $cappedTotal) : 0;
 
         /*
         |--------------------------------------------------------------------------
-        | Achieved Quantity (selected period + same branch)
+        | Commission (always current month) — Sales History formula
         |--------------------------------------------------------------------------
         */
 
-        $saleItems = SaleItem::where('salesperson_code', (string) $staff->employee_id)
-            ->whereHas('sale', function ($q) use ($from, $to, $branchName) {
-                $q->where('shop_name', $branchName)
-                    ->whereBetween('date', [
-                        $from->toDateString(),
-                        $to->toDateString(),
-                    ]);
-            })
-            ->get(['quantity', 'price']);
+        $commission = 0.0;
+        if ($isAssigned) {
+            $monthlySaleItems = $monthlyItemsByStaff->get((string) $staff->employee_id, collect());
 
-        $achieved = (float) $saleItems->sum(function ($item) {
-            return max(0, (float) $item->quantity);
-        });
+            foreach ($monthlySaleItems->groupBy('invoice_id') as $invoiceItems) {
+                $saleDate = $invoiceItems->first()->date;
+                $dateKey = (string) $saleDate;
+                if (!array_key_exists($dateKey, $rateCache)) {
+                    $rateCache[$dateKey] = CommissionHelper::rateFor('sales_staff', $saleDate);
+                }
+                $rate = $rateCache[$dateKey];
 
-        // Achieved cannot exceed target; no target => achieved 0
-        $achieved = $target > 0 ? min($achieved, $target) : 0;
+                $invoiceCommission = round($invoiceItems->sum(function ($item) use ($rate) {
+                    $price = max(0, (float) $item->price);
+                    $discount = max(0, (float) $item->discount);
+                    $quantity = (int) $item->quantity;
+                    $salesAmount = ($price - $discount) * $quantity;
 
-        /*
-        |--------------------------------------------------------------------------
-        | Commission (always current month, only when target assigned)
-        |--------------------------------------------------------------------------
-        */
+                    return ($salesAmount * $rate) / 100;
+                }), 2);
 
-        $monthlySaleItems = SaleItem::with('sale')
-            ->where('salesperson_code', (string) $staff->employee_id)
-            ->whereHas('sale', function ($q) use ($branchName, $monthNum, $year) {
-                $q->where('shop_name', $branchName)
-                    ->whereMonth('date', $monthNum)
-                    ->whereYear('date', $year);
-            })
-            ->get(['invoice_id', 'quantity', 'price']);
+                $commission += $invoiceCommission;
+            }
 
-        $commission = $target > 0
-            ? CommissionHelper::sumProducts('sales_staff', $monthlySaleItems)
-            : 0;
+            $commission = round($commission, 2);
+        }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Percentage
-        |--------------------------------------------------------------------------
-        */
-
-        $percentage = $target > 0
-            ? min(100, (int) round(($achieved / $target) * 100))
+        $percentage = $isAssigned
+            ? (int) min(100, round(($achieved / $target) * 100))
             : 0;
 
         $rows[] = [
             'staff_id' => $staff->id,
             'name' => $staff->name,
-            'target' => $target,
-            'achieved' => $achieved,
+            'target' => $isAssigned ? $target : 0,
+            'achieved' => $isAssigned ? $achieved : 0,
             'achievement_percentage' => $percentage,
-            'remaining_percentage' => $target > 0 ? (100 - $percentage) : 0,
+            'remaining_percentage' => $isAssigned ? (100 - $percentage) : 0,
             'commission' => $commission,
         ];
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Ranking
-    |--------------------------------------------------------------------------
-    */
 
     usort($rows, function ($a, $b) {
         return $b['achievement_percentage'] <=> $a['achievement_percentage'];
@@ -721,12 +892,6 @@ public function staffComparison(Request $request)
         $row['rank'] = $index + 1;
     }
     unset($row);
-
-    /*
-    |--------------------------------------------------------------------------
-    | Logged-in Staff
-    |--------------------------------------------------------------------------
-    */
 
     $yourData = collect($rows)->firstWhere('staff_id', $user->id);
 
@@ -745,5 +910,73 @@ public function staffComparison(Request $request)
         ],
     ]);
 }
+
+    private function currentWeekRangeOfMonth(): array
+    {
+        $now = Carbon::now();
+        $monthStart = $now->copy()->startOfMonth()->startOfDay();
+        $monthEnd = $now->copy()->endOfMonth()->endOfDay();
+
+        for ($i = 1; $i <= 4; $i++) {
+            $start = $monthStart->copy()->addDays(($i - 1) * 7)->startOfDay();
+            $end = $start->copy()->addDays(6)->endOfDay();
+
+            if ($i === 4 || $end->gt($monthEnd)) {
+                $end = $monthEnd->copy()->endOfDay();
+            }
+
+            if ($now->between($start, $end)) {
+                return [$start, $end];
+            }
+        }
+
+        return [$monthStart, $monthEnd];
+    }
+
+    private function currentWeekOfMonth(): int
+    {
+        $now = Carbon::now();
+        $monthStart = $now->copy()->startOfMonth();
+        $monthEnd = $now->copy()->endOfMonth();
+
+        for ($i = 1; $i <= 4; $i++) {
+            $start = $monthStart->copy()->addDays(($i - 1) * 7)->startOfDay();
+            $end = $start->copy()->addDays(6)->endOfDay();
+
+            if ($i === 4 || $end->gt($monthEnd)) {
+                $end = $monthEnd->copy()->endOfDay();
+            }
+
+            if ($now->between($start, $end)) {
+                return $i;
+            }
+        }
+
+        return min(4, (int) ceil($now->day / 7));
+    }
+
+    private function resolveStaffPeriodTarget(float $monthlyAssigned, $branchTargets, string $period): float
+    {
+        if ($monthlyAssigned <= 0) {
+            return 0;
+        }
+
+        if ($period !== 'weekly') {
+            return $monthlyAssigned;
+        }
+
+        $weekColumn = 'week_' . $this->currentWeekOfMonth();
+
+        if ($branchTargets->isEmpty()) {
+            $weekPercent = 25;
+        } else {
+            $weekPercent = (float) $branchTargets->avg($weekColumn);
+            if ($weekPercent <= 0) {
+                $weekPercent = 25;
+            }
+        }
+
+        return round(($monthlyAssigned * $weekPercent) / 100, 2);
+    }
 
 }

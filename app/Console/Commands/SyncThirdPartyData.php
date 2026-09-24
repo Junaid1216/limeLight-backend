@@ -346,7 +346,7 @@ class SyncThirdPartyData extends Command
     {
         $saved = 0;
         $branchesByName = $branches->keyBy('name');
-        $lineItemNames = [];
+        // $lineItemNames = [];
 
         foreach ($branchesByName as $shopName => $branch) {
             $shopSales = $salesByShop[$shopName] ?? [];
@@ -354,15 +354,16 @@ class SyncThirdPartyData extends Command
                 continue;
             }
 
-            $lineItemNames = array_merge($lineItemNames, $this->saveBranchSales($shopSales));
+            $this->saveBranchSales($shopSales);
+            // $lineItemNames = array_merge($lineItemNames, $this->saveBranchSales($shopSales));
             $count = count($shopSales);
             $saved += $count;
             $this->info("Sales saved: {$shopName} ({$count} invoices)");
         }
 
-        if (!empty($lineItemNames)) {
-            app(LineItemSyncService::class)->syncFromNames($lineItemNames);
-        }
+        // if (!empty($lineItemNames)) {
+        //     app(LineItemSyncService::class)->syncFromNames($lineItemNames);
+        // }
 
         return $saved;
     }
@@ -370,9 +371,9 @@ class SyncThirdPartyData extends Command
     /**
      * @return array<int, string|null> product names for line-item sync
      */
-    private function saveBranchSales(array $sales): array
+    private function saveBranchSales(array $sales): void
     {
-        $lineItemNames = [];
+        // $lineItemNames = [];
 
         foreach ($sales as $sale) {
             $invoice = Sale::updateOrCreate(
@@ -424,11 +425,11 @@ class SyncThirdPartyData extends Command
                     ]
                 );
 
-                $lineItemNames[] = $item['ProductName'] ?? null;
+                // $lineItemNames[] = $item['ProductName'] ?? null;
             }
         }
 
-        return $lineItemNames;
+        // return $lineItemNames;
     }
 
     private function syncTransactionSummaries($branches): void

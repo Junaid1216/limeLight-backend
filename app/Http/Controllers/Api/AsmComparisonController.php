@@ -672,343 +672,210 @@ public function staffComparison(Request $request)
         ], 401);
     }
 
-    $month = Carbon::now()->format('F');
-    $year = (string) Carbon::now()->year;
-    $monthStart = Carbon::now()->startOfMonth()->toDateString();
-    $monthEnd = Carbon::now()->endOfMonth()->toDateString();
+    $now = Carbon::now();
+    $month = $now->format('F');
+    $year = (string) $now->year;
+
+    $monthVariants = array_values(array_unique([
+        $month,
+        strtolower($month),
+        ucfirst(strtolower($month)),
+        $now->format('m'),
+        (string) $now->month,
+    ]));
+
+    $yearVariants = array_values(array_unique([
+        $year,
+        (int) $year,
+    ]));
+
+    $from = $now->copy()->startOfMonth()->startOfDay();
+    $to = $now->copy()->endOfMonth()->endOfDay();
+
+    $categoryMappings = [
+        'garments' => [
+            'signature', 'flowy', 'trouser', 'regular prints', 'fusion co-ords', 'festive',
+            'composed rotary', 'premium', 'casual', 'glam', 'dailywear', 'regular running',
+            'regular panel', 'modish', 'trendy', 'premium wear', 'tops',
+        ],
+        'unstitched' => [
+            'dupatta - dyed', 'unstitched trousers',
+        ],
+        'accessories' => [
+            'hand bag', 'scarves - printed', 'sunglasses', 'jewellery', 'clutches',
+            'perfumes', 'body mist', 'non-tradable',
+        ],
+    ];
 
     $branches = Branch::where('region_id', $asm->region_id)->get();
-
-    $categories = [
-        'garments',
-        'unstitched',
-        'accessories'
-    ];
-
-    $garmentsCategories = [
-        'signature',
-        'flowy',
-        'trouser',
-        'regular prints',
-        'fusion co-ords',
-        'festive',
-        'composed rotary',
-        'premium',
-        'casual',
-        'glam',
-        'dailywear',
-        'regular running',
-        'regular panel',
-        'modish',
-        'trendy',
-        'premium wear',
-        'tops'
-    ];
-
-    $unstitchedCategories = [
-        'dupatta - dyed',
-        'unstitched trousers'
-    ];
-
-    $accessoriesCategories = [
-        'hand bag',
-        'scarves - printed',
-        'sunglasses',
-        'jewellery',
-        'clutches',
-        'perfumes',
-        'body mist',
-        'non-tradable'
-    ];
-
     $response = [];
+    $rateCache = [];
 
     foreach ($branches as $branch) {
+        $staffList = SaleStaff::where('branch_id', $branch->id)
+            ->get(['id', 'name', 'employee_id', 'branch_id']);
 
-        $staffList = SaleStaff::where('branch_id', $branch->id)->get();
+        $employeeIds = $staffList->pluck('employee_id')
+            ->filter()
+            ->map(function ($id) {
+                return (string) $id;
+            })
+            ->values()
+            ->all();
+
+        $itemsByStaff = collect();
+        if (!empty($employeeIds)) {
+            $items = SaleItem::query()
+                ->select([
+                    'sale_items.invoice_id',
+                    'sale_items.salesperson_code',
+                    'sale_items.category',
+                    'sale_items.quantity',
+                    'sale_items.discount',
+                    'sale_items.price',
+                    'sales.date',
+                ])
+                ->join('sales', 'sales.invoice_id', '=', 'sale_items.invoice_id')
+                ->where('sales.shop_name', $branch->name)
+                ->whereBetween('sales.date', [$from, $to])
+                ->whereIn('sale_items.salesperson_code', $employeeIds)
+                ->get();
+
+            $itemsByStaff = $items->groupBy(function ($item) {
+                return (string) $item->salesperson_code;
+            });
+        }
 
         $staffData = [];
 
         foreach ($staffList as $staff) {
-
             /*
             |--------------------------------------------------------------------------
-            | Current month assigned targets
+            | Target / Achieved — same as admin sale staff + BM staff comparison
+            | garments / unstitched / accessories; cap per category then sum
             |--------------------------------------------------------------------------
             */
 
-            // Only admin-approved targets count as assigned
             $assignedTargets = AssignedTarget::where('user_id', $staff->id)
-                ->where('month', $month)
-                ->where('year', $year)
+                ->whereIn('month', $monthVariants)
+                ->whereIn('year', $yearVariants)
                 ->where('status', 'approved')
                 ->get();
 
-            $categoryTargets = [
-                'garments' => 0,
-                'unstitched' => 0,
-                'accessories' => 0,
+            $assigned = [
+                'garments' => 0.0,
+                'unstitched' => 0.0,
+                'accessories' => 0.0,
             ];
 
             foreach ($assignedTargets as $assignedTarget) {
                 $key = strtolower(trim((string) $assignedTarget->category));
-                if (array_key_exists($key, $categoryTargets)) {
-                    $categoryTargets[$key] += max(0, (float) $assignedTarget->target);
+                if (isset($assigned[$key])) {
+                    $assigned[$key] += max(0, (float) $assignedTarget->target);
                 }
             }
 
-            $target = array_sum($categoryTargets);
+            $target = array_sum($assigned);
             $isAssigned = $target > 0;
 
-            /*
-            |--------------------------------------------------------------------------
-            | Get Staff Sales (current month)
-            |--------------------------------------------------------------------------
-            */
+            $saleItems = $itemsByStaff->get((string) $staff->employee_id, collect());
 
-            $saleItems = SaleItem::with('sale')
-                ->where(
-                    'salesperson_code',
-                    $staff->employee_id
-                )
-                ->whereHas('sale', function ($q) use ($branch, $monthStart, $monthEnd) {
-                    $q->where('shop_name', $branch->name)
-                        ->whereRaw('DATE(`date`) BETWEEN ? AND ?', [
-                            $monthStart,
-                            $monthEnd,
-                        ]);
-                })
-                ->get();
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | Category Achieved + sale amount (for commission on achieved)
-            |--------------------------------------------------------------------------
-            */
-
-            $categoryAchieved = [
-                'garments' => 0,
-                'unstitched' => 0,
-                'accessories' => 0
+            $sold = [
+                'garments' => 0.0,
+                'unstitched' => 0.0,
+                'accessories' => 0.0,
             ];
-
-            $categoryCommission = [
-                'garments' => 0,
-                'unstitched' => 0,
-                'accessories' => 0
-            ];
-
 
             foreach ($saleItems as $item) {
-
-                $itemCategory = strtolower(trim($item->category));
-
-                $qty = max(0, (float) $item->quantity);
-                $lineCommission = CommissionHelper::forProduct(
-                    'sales_staff',
-                    $qty,
-                    $item->price,
-                    optional($item->sale)->date
-                );
-
-
-                /*
-                |--------------------------------------------------------------------------
-                | Garments
-                |--------------------------------------------------------------------------
-                */
-
-                if (in_array($itemCategory, $garmentsCategories)) {
-
-                    $categoryAchieved['garments'] += $qty;
-                    $categoryCommission['garments'] += $lineCommission;
-
-                }
-
-
-                /*
-                |--------------------------------------------------------------------------
-                | Unstitched
-                |--------------------------------------------------------------------------
-                */
-
-                elseif (in_array($itemCategory, $unstitchedCategories)) {
-
-                    $categoryAchieved['unstitched'] += $qty;
-                    $categoryCommission['unstitched'] += $lineCommission;
-
-                }
-
-
-                /*
-                |--------------------------------------------------------------------------
-                | Accessories
-                |--------------------------------------------------------------------------
-                */
-
-                elseif (in_array($itemCategory, $accessoriesCategories)) {
-
-                    $categoryAchieved['accessories'] += $qty;
-                    $categoryCommission['accessories'] += $lineCommission;
-
-                }
-            }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | Cap Achieved Per Category + achieved sale amount for commission
-            |--------------------------------------------------------------------------
-            */
-
-            $achievedCommission = 0;
-
-            foreach ($categories as $category) {
-                $rawQty = $categoryAchieved[$category];
-                $catTarget = $categoryTargets[$category];
-
-                if ($catTarget > 0) {
-                    $cappedQty = min($rawQty, $catTarget);
-                    $categoryAchieved[$category] = $cappedQty;
-
-                    // Commission only on achieved portion of sales
-                    if ($rawQty > 0) {
-                        $ratio = $cappedQty / $rawQty;
-                        $achievedCommission += $categoryCommission[$category] * $ratio;
+                $itemCategory = strtolower(trim((string) ($item->category ?? '')));
+                foreach ($categoryMappings as $category => $mapping) {
+                    if (in_array($itemCategory, $mapping, true)) {
+                        $sold[$category] += max(0, (float) $item->quantity);
+                        break;
                     }
-                } else {
-                    $categoryAchieved[$category] = 0;
                 }
             }
 
+            $cappedTotal = 0.0;
+            foreach ($assigned as $category => $catTarget) {
+                if ($catTarget > 0) {
+                    $cappedTotal += min($catTarget, $sold[$category]);
+                }
+            }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Total Achieved
-            |--------------------------------------------------------------------------
-            */
-
-            $achieved = array_sum($categoryAchieved);
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | Final Safety Check
-            |--------------------------------------------------------------------------
-            */
-
-            $achieved = $isAssigned ? min($achieved, $target) : 0;
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | Remaining
-            |--------------------------------------------------------------------------
-            */
-
-            $remaining = $isAssigned
-                ? max($target - $achieved, 0)
-                : 0;
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | Achievement Percentage
-            |--------------------------------------------------------------------------
-            */
+            $achieved = $isAssigned ? min($target, $cappedTotal) : 0;
+            $remaining = $isAssigned ? max($target - $achieved, 0) : 0;
 
             $percentage = $isAssigned
-                ? min(100, (int) round(($achieved / $target) * 100))
+                ? (int) min(100, round(($achieved / $target) * 100))
                 : 0;
-
 
             /*
             |--------------------------------------------------------------------------
-            | Commission: only if target assigned, based on achieved sales
+            | Commission — Sales History sale staff formula
+            | (price − discount) × qty × sales_staff rate @ sale date
+            | Round per invoice, then sum
             |--------------------------------------------------------------------------
             */
 
-            $commission = $isAssigned
-                ? (int) round($achievedCommission)
-                : 0;
+            $commission = 0.0;
+            if ($isAssigned) {
+                foreach ($saleItems->groupBy('invoice_id') as $invoiceItems) {
+                    $saleDate = $invoiceItems->first()->date;
+                    $dateKey = (string) $saleDate;
+                    if (!array_key_exists($dateKey, $rateCache)) {
+                        $rateCache[$dateKey] = CommissionHelper::rateFor('sales_staff', $saleDate);
+                    }
+                    $rate = $rateCache[$dateKey];
 
+                    $invoiceCommission = round($invoiceItems->sum(function ($item) use ($rate) {
+                        $price = max(0, (float) $item->price);
+                        $discount = max(0, (float) $item->discount);
+                        $quantity = (int) $item->quantity;
+                        $salesAmount = ($price - $discount) * $quantity;
 
-            /*
-            |--------------------------------------------------------------------------
-            | Staff Data
-            |--------------------------------------------------------------------------
-            */
+                        return ($salesAmount * $rate) / 100;
+                    }), 2);
+
+                    $commission += $invoiceCommission;
+                }
+                $commission = round($commission, 2);
+            }
 
             $staffData[] = [
-
                 'staff_id' => $staff->id,
-
                 'name' => $staff->name,
-
                 'is_assigned' => $isAssigned,
-
                 'target' => $isAssigned ? $target : 0,
-
                 'achieved' => $isAssigned ? $achieved : 0,
-
                 'remaining' => $remaining,
-
                 'achievement_percentage' => $percentage,
-
                 'remaining_percentage' => $isAssigned ? (100 - $percentage) : 0,
-
-                'commission' => $commission
-
+                'commission' => $commission,
             ];
         }
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | Ranking
-        |--------------------------------------------------------------------------
-        */
-
         usort($staffData, function ($a, $b) {
-
-            return $b['achievement_percentage']
-                <=> $a['achievement_percentage'];
-
+            return $b['achievement_percentage'] <=> $a['achievement_percentage'];
         });
 
-
-        foreach ($staffData as $index => &$staff) {
-
-            $staff['rank'] = $index + 1;
-
+        foreach ($staffData as $index => &$staffRow) {
+            $staffRow['rank'] = $index + 1;
         }
-
-        unset($staff);
-
+        unset($staffRow);
 
         $response[] = [
-
             'branch_id' => $branch->id,
-
             'branch_name' => $branch->name,
-
             'staff_members' => count($staffData),
-
-            'staff' => $staffData
-
+            'staff' => $staffData,
         ];
     }
 
-
     return response()->json([
-
         'status' => 200,
-
         'message' => 'Staff Comparison',
-
-        'data' => $response
-
+        'data' => $response,
     ]);
 }
 

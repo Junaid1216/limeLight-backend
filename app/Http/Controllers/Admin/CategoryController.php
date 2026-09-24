@@ -18,6 +18,11 @@ class CategoryController extends Controller
         $lineItemSync->dedupeExisting();
 
         $lineItems = LineItem::with('category')
+            ->whereRaw("LOWER(TRIM(name)) NOT IN (?, ?, ?)", [
+                    'non-tradable',
+                    'jewellery',
+                    'tops'
+                ])
             ->orderByDesc('id')
             ->get()
             ->unique(function ($item) use ($lineItemSync) {

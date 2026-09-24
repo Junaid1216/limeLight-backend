@@ -359,6 +359,76 @@ class ReportingController extends Controller
         return round(($monthlyAssigned * $weekPercent) / 100, 2);
     }
 
+    private function applySaleDateFilter($query, Carbon $from, Carbon $to)
+    {
+        return $query->whereRaw('DATE(`date`) BETWEEN ? AND ?', [
+            $from->toDateString(),
+            $to->toDateString(),
+        ]);
+    }
+
+     private function saleDedupeKey(Sale $sale): string
+    {
+        return strtolower(trim((string) $sale->shop_name)) . '|' . trim((string) $sale->invoice_id);
+    }
+
+    private function dedupeSales($sales)
+    {
+        $keyedPairs = [];
+        foreach ($sales as $sale) {
+            if ($sale->sale_key !== null && $sale->sale_key !== '') {
+                $keyedPairs[$this->saleDedupeKey($sale)] = true;
+            }
+        }
+
+        return $sales->filter(function ($sale) use ($keyedPairs) {
+            $hasKey = $sale->sale_key !== null && $sale->sale_key !== '';
+            if ($hasKey) {
+                return true;
+            }
+
+            return !isset($keyedPairs[$this->saleDedupeKey($sale)]);
+        })->values();
+    }
+
+
+    private function resolveSaleItems(Sale $sale)
+    {
+        $hasKey = $sale->sale_key !== null && $sale->sale_key !== '';
+
+        if ($hasKey) {
+            $items = $sale->relationLoaded('items') ? $sale->items : $sale->items()->get();
+            if ($items->isNotEmpty()) {
+                return $items;
+            }
+        }
+
+        $items = $sale->relationLoaded('itemsByInvoice')
+            ? $sale->itemsByInvoice
+            : $sale->itemsByInvoice()->get();
+
+        $keyed = $items->filter(function ($item) {
+            return $item->sale_key !== null && $item->sale_key !== '';
+        });
+
+        if ($keyed->isNotEmpty()) {
+            if ($sale->shop_name) {
+                $byShop = $keyed->filter(function ($item) use ($sale) {
+                    return empty($item->shop_name) || $item->shop_name === $sale->shop_name;
+                });
+                if ($byShop->isNotEmpty()) {
+                    return $byShop->values();
+                }
+            }
+
+            return $keyed->values();
+        }
+
+        return $items->filter(function ($item) {
+            return $item->sale_key === null || $item->sale_key === '';
+        })->values();
+    }
+
     private function asmComparisons(AreaSaleManager $asm, Carbon $from, Carbon $to, string $period): array
     {
         $branches = Branch::where('region_id', $asm->region_id)->get();
@@ -440,26 +510,58 @@ class ReportingController extends Controller
             ? min(100, round(($achieved / $periodTarget) * 100, 2))
             : null;
 
-        $saleItems = SaleItem::query()
-            ->select(['sale_items.invoice_id', 'sale_items.quantity', 'sale_items.price', 'sales.date'])
-            ->join('sales', 'sales.invoice_id', '=', 'sale_items.invoice_id')
-            ->where('sales.shop_name', $branch->name)
-            ->whereBetween('sales.date', [$from, $to])
-            ->get();
+        $sales = $this->applySaleDateFilter(
+                    Sale::with([
+                        'items:id,sale_key,invoice_id,quantity,tax,price,discount,salesperson_name,salesperson_code',
+                        'itemsByInvoice:id,sale_key,invoice_id,quantity,tax,price,discount,salesperson_name,salesperson_code',
+                    ])->where('shop_name', $branch->name),
+                    $from,
+                    $to
+                )
+                    ->orderByDesc('date')
+                    ->get([
+                        'id',
+                        'sales_id',
+                        'invoice_id',
+                        'sale_key',
+                        'shop_name',
+                        'date',
+                        'net_total',
+                    ]);
 
-        $commission = 0;
-        if ($isAssigned) {
-            $rateCache = [];
-            foreach ($saleItems as $item) {
-                $dateKey = (string) $item->date;
-                if (!array_key_exists($dateKey, $rateCache)) {
-                    $rateCache[$dateKey] = CommissionHelper::rateFor('branch_manager', $item->date);
+                $sales = $this->dedupeSales($sales);
+
+                $commission = 0;
+                $rateCache = [];
+
+                if ($isAssigned) {
+                    foreach ($sales as $sale) {
+                        $items = $this->resolveSaleItems($sale);
+
+                        $dateKey = (string) $sale->date;
+
+                        if (!array_key_exists($dateKey, $rateCache)) {
+                            $rateCache[$dateKey] = CommissionHelper::rateForBranchManager(
+                                $manager,
+                                $sale->date
+                            );
+                        }
+
+                        $rate = $rateCache[$dateKey];
+
+                        $commission += $items->sum(function ($item) use ($rate) {
+                            $price = max(0, (float) $item->price);
+                            $discount = max(0, (float) $item->discount);
+                            $quantity = (int) $item->quantity;
+
+                            $salesAmount = ($price - $discount) * $quantity;
+
+                            return ($salesAmount * $rate) / 100;
+                        });
+                    }
+
+                    $commission = round($commission, 2);
                 }
-                $rate = $rateCache[$dateKey];
-                $commission += (max(0, (float) $item->quantity) * max(0, (float) $item->price) * $rate) / 100;
-            }
-            $commission = round($commission, 2);
-        }
 
         return [
             'type' => 'branch_manager',
@@ -824,14 +926,19 @@ class ReportingController extends Controller
         $this->warmStaffTargetsIndex($staffList->pluck('id'));
         $this->warmTargetIndex([$branch->id]);
 
-        $employeeIds = $staffList->pluck('employee_id')->filter()->values()->all();
+        $employeeIds = $staffList->pluck('employee_id')->filter()->map(function ($id) {
+            return (string) $id;
+        })->values()->all();
 
         $itemsByStaff = collect();
         if (!empty($employeeIds)) {
             $items = SaleItem::query()
                 ->select([
+                    'sale_items.invoice_id',
                     'sale_items.salesperson_code',
+                    'sale_items.category',
                     'sale_items.quantity',
+                    'sale_items.discount',
                     'sale_items.price',
                     'sales.date',
                 ])
@@ -841,39 +948,72 @@ class ReportingController extends Controller
                 ->whereIn('sale_items.salesperson_code', $employeeIds)
                 ->get();
 
-            $itemsByStaff = $items->groupBy('salesperson_code');
+            $itemsByStaff = $items->groupBy(function ($item) {
+                return (string) $item->salesperson_code;
+            });
         }
 
         $staffData = [];
         $rateCache = [];
 
         foreach ($staffList as $staff) {
-            $monthlyAssigned = 0;
+            // Same target buckets as saleStaffComparisons (garments / unstitched / accessories only)
+            $assigned = ['garments' => 0.0, 'unstitched' => 0.0, 'accessories' => 0.0];
             foreach ($this->getStaffMonthTargets($staff->id) as $assignedTarget) {
-                $monthlyAssigned += max(0, (float) $assignedTarget->target);
+                $key = strtolower(trim((string) $assignedTarget->category));
+                if (isset($assigned[$key])) {
+                    $assigned[$key] += max(0, (float) $assignedTarget->target);
+                }
+            }
+            foreach ($assigned as $category => $value) {
+                $assigned[$category] = $this->resolveStaffPeriodTarget($value, $branch, $period);
             }
 
-            $target = $this->resolveStaffPeriodTarget($monthlyAssigned, $branch, $period);
+            $target = array_sum($assigned);
             $isAssigned = $target > 0;
 
-            $saleItems = $itemsByStaff->get($staff->employee_id, collect());
+            $saleItems = $itemsByStaff->get((string) $staff->employee_id, collect());
 
-            $achievedRaw = (float) $saleItems->sum(function ($item) {
-                return max(0, (float) $item->quantity);
-            });
+            // Same achieved as sale staff: map to category buckets, cap per category, then sum
+            $sold = ['garments' => 0.0, 'unstitched' => 0.0, 'accessories' => 0.0];
+            foreach ($saleItems as $item) {
+                $bucket = $this->mapCategoryBucket(strtolower(trim((string) ($item->category ?? ''))));
+                if ($bucket) {
+                    $sold[$bucket] += max(0, (float) $item->quantity);
+                }
+            }
 
-            $achieved = $isAssigned ? min($target, $achievedRaw) : null;
+            $cappedTotal = 0.0;
+            foreach ($assigned as $category => $catTarget) {
+                if ($catTarget > 0) {
+                    $cappedTotal += min($catTarget, $sold[$category]);
+                }
+            }
+
+            $achieved = $isAssigned ? min($target, $cappedTotal) : null;
             $percentage = $isAssigned ? min(100, round(($achieved / $target) * 100)) : null;
 
-            $commission = 0;
+            // Match Sales History: round commission per invoice, then sum (all staff lines)
+            $commission = 0.0;
             if ($isAssigned) {
-                foreach ($saleItems as $item) {
-                    $dateKey = (string) $item->date;
+                foreach ($saleItems->groupBy('invoice_id') as $invoiceItems) {
+                    $saleDate = $invoiceItems->first()->date;
+                    $dateKey = (string) $saleDate;
                     if (!array_key_exists($dateKey, $rateCache)) {
-                        $rateCache[$dateKey] = CommissionHelper::rateFor('sales_staff', $item->date);
+                        $rateCache[$dateKey] = CommissionHelper::rateFor('sales_staff', $saleDate);
                     }
                     $rate = $rateCache[$dateKey];
-                    $commission += (max(0, (float) $item->quantity) * max(0, (float) $item->price) * $rate) / 100;
+
+                    $invoiceCommission = round($invoiceItems->sum(function ($item) use ($rate) {
+                        $price = max(0, (float) $item->price);
+                        $discount = max(0, (float) $item->discount);
+                        $quantity = (int) $item->quantity;
+                        $salesAmount = ($price - $discount) * $quantity;
+
+                        return ($salesAmount * $rate) / 100;
+                    }), 2);
+
+                    $commission += $invoiceCommission;
                 }
                 $commission = round($commission, 2);
             }

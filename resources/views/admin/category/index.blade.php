@@ -47,20 +47,11 @@
 
                                             <td>
                                                 <span class="badge badge-info">
-                                                    @if($item->name == 'Non-Tradable')
-                                                        N/A
-                                                    @else
                                                     {{ $item->category->name ?? 'Unassigned' }}
-                                                    @endif
                                                 </span>
                                             </td>
 
                                             <td>
-                                                @if($item->name == 'Non-Tradable')
-                                                    <span class="badge badge-info">
-                                                        N/A
-                                                    </span>
-                                                @else
                                                 <form method="POST"
                                                       action="{{ route('lineitem.update', $item->id) }}"
                                                       class="d-flex align-items-center"
@@ -82,7 +73,6 @@
                                                         <i class="fa fa-save"></i>
                                                     </button>
                                                 </form>
-                                                 @endif
                                             </td>
 
                                         </tr>
