@@ -14,6 +14,8 @@ use App\Models\Notification;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\SaleStaff;
+use App\Models\Target;
+use App\Models\UserNotification;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -51,10 +53,58 @@ class AppScreenController extends Controller
             ], 403);
         }
 
+        $list = [];
+        $unreadCount = 0;
+
+        // Admin-sent notifications (admin_notifications + user_notifications)
+        $adminSent = UserNotification::query()
+            ->with('adminNotification')
+            ->where('user_id', $user->id)
+            ->where('user_type', $role)
+            ->whereHas('adminNotification', function ($q) {
+                $q->where(function ($q2) {
+                    $q2->where('is_deleted', 0)->orWhereNull('is_deleted');
+                });
+            })
+            ->latest()
+            ->get();
+
+        foreach ($adminSent as $row) {
+            $admin = $row->adminNotification;
+            if (!$admin) {
+                continue;
+            }
+
+            $seen = (int) $row->is_read;
+            $isUnread = $seen === 0;
+            if ($isUnread) {
+                $unreadCount++;
+            }
+
+            $list[] = [
+                'id' => 'admin_' . $row->id,
+                'admin_notification_id' => $row->admin_notification_id,
+                'title' => $admin->title,
+                'description' => $admin->description,
+                'tag' => $this->resolveNotificationTag($admin->title, $admin->description, $row->user_type),
+                'image' => null,
+                'is_unread' => $isUnread,
+                'seen' => $seen,
+                'source' => 'admin_notification',
+                'created_at' => optional($row->created_at)->toDateTimeString(),
+                'time_ago' => optional($row->created_at)->diffForHumans(),
+            ];
+        }
+
+        // Legacy targeted notifications
         $rows = Notification::select('notifications.*')
             ->join('notification_targets', 'notification_targets.notification_id', '=', 'notifications.id')
             ->where('notification_targets.targetable_id', $user->id)
             ->where('notification_targets.targetable_type', get_class($user))
+            ->where(function ($q) {
+                $q->where('notifications.delete_by_admin', 0)
+                    ->orWhereNull('notifications.delete_by_admin');
+            })
             ->orderBy('notifications.created_at', 'desc')
             ->addSelect('notification_targets.seen')
             ->get();
@@ -63,14 +113,14 @@ class AppScreenController extends Controller
         $roleUserTypes = $this->roleUserTypes($role);
 
         $byType = Notification::whereIn('user_type', $roleUserTypes)
+            ->where(function ($q) {
+                $q->where('delete_by_admin', 0)->orWhereNull('delete_by_admin');
+            })
             ->orderBy('created_at', 'desc')
             ->limit(50)
             ->get();
 
         $merged = $rows->concat($byType)->unique('id')->sortByDesc('created_at')->values();
-
-        $list = [];
-        $unreadCount = 0;
 
         foreach ($merged as $item) {
             $seen = (int) ($item->seen ?? $item->seenByUser ?? $item->is_read ?? 0);
@@ -84,16 +134,22 @@ class AppScreenController extends Controller
 
             $list[] = [
                 'id' => $item->id,
+                'admin_notification_id' => null,
                 'title' => $item->title,
                 'description' => $item->description,
                 'tag' => $tag,
                 'image' => $item->image,
                 'is_unread' => $isUnread,
                 'seen' => $seen,
+                'source' => 'legacy',
                 'created_at' => optional($item->created_at)->toDateTimeString(),
                 'time_ago' => optional($item->created_at)->diffForHumans(),
             ];
         }
+
+        usort($list, function ($a, $b) {
+            return strcmp($b['created_at'] ?? '', $a['created_at'] ?? '');
+        });
 
         return response()->json([
             'status' => 200,
@@ -196,70 +252,206 @@ class AppScreenController extends Controller
             ], 404);
         }
 
+        $now = Carbon::now();
         $type = strtolower($request->get('type', 'weekly'));
 
         if ($type === 'monthly') {
-            $from = Carbon::now()->startOfMonth();
-            $to = Carbon::now()->endOfMonth();
+            $from = $now->copy()->startOfMonth()->startOfDay();
+            $to = $now->copy()->endOfMonth()->endOfDay();
         } else {
             $type = 'weekly';
-            $from = Carbon::now()->startOfWeek();
-            $to = Carbon::now()->endOfWeek();
+            [$from, $to] = $this->currentWeekRangeOfMonth();
         }
 
-        $month = Carbon::now()->format('F');
-        $year = (string) Carbon::now()->year;
+        $month = $now->format('F');
+        $year = (string) $now->year;
+        $monthNum = $now->month;
 
-        $branch = \App\Models\Branch::find($user->branch_id);
+        $monthVariants = array_values(array_unique([
+            $month,
+            strtolower($month),
+            ucfirst(strtolower($month)),
+            $now->format('m'),
+            (string) $monthNum,
+        ]));
+
+        $yearVariants = array_values(array_unique([
+            $year,
+            (int) $year,
+        ]));
+
+        $branch = Branch::find($user->branch_id);
         $branchName = $branch->name ?? '';
 
-        $staffMembers = SaleStaff::where('branch_id', $user->branch_id)->get();
+        $categoryMappings = [
+            'garments' => [
+                'signature', 'flowy', 'trouser', 'regular prints', 'fusion co-ords', 'festive',
+                'composed rotary', 'premium', 'casual', 'glam', 'dailywear', 'regular running',
+                'regular panel', 'modish', 'trendy', 'premium wear', 'tops',
+            ],
+            'unstitched' => [
+                'dupatta - dyed', 'unstitched trousers',
+            ],
+            'accessories' => [
+                'hand bag', 'scarves - printed', 'sunglasses', 'jewellery', 'clutches',
+                'perfumes', 'body mist', 'non-tradable',
+            ],
+        ];
+
+        $staffMembers = SaleStaff::where('branch_id', $user->branch_id)
+            ->get(['id', 'name', 'employee_id', 'branch_id']);
+
+        $branchTargets = Target::where('branch_id', $user->branch_id)
+            ->whereIn('month', array_values(array_unique([
+                $month,
+                strtolower($month),
+                ucfirst(strtolower($month)),
+            ])))
+            ->whereIn('year', $yearVariants)
+            ->get();
+
+        $employeeIds = $staffMembers->pluck('employee_id')
+            ->filter()
+            ->map(function ($id) {
+                return (string) $id;
+            })
+            ->values()
+            ->all();
+
+        $itemsByStaff = collect();
+        if (!empty($employeeIds) && $branchName !== '') {
+            $items = SaleItem::query()
+                ->select([
+                    'sale_items.invoice_id',
+                    'sale_items.salesperson_code',
+                    'sale_items.category',
+                    'sale_items.quantity',
+                    'sale_items.price',
+                    'sale_items.discount',
+                    'sales.date',
+                ])
+                ->join('sales', 'sales.invoice_id', '=', 'sale_items.invoice_id')
+                ->where('sales.shop_name', $branchName)
+                ->whereBetween('sales.date', [$from, $to])
+                ->whereIn('sale_items.salesperson_code', $employeeIds)
+                ->get();
+
+            $itemsByStaff = $items->groupBy(function ($item) {
+                return (string) $item->salesperson_code;
+            });
+        }
+
         $rows = [];
+        $rateCache = [];
 
         foreach ($staffMembers as $staff) {
-            // Only admin-approved targets count as assigned
-            $target = (float) AssignedTarget::where('user_id', $staff->id)
-                ->where('month', $month)
-                ->where('year', $year)
+            /*
+            |--------------------------------------------------------------------------
+            | Target / Achieved — same as admin sale staff reporting
+            | garments / unstitched / accessories; cap per category then sum
+            |--------------------------------------------------------------------------
+            */
+
+            $targets = AssignedTarget::where('user_id', $staff->id)
+                ->whereIn('month', $monthVariants)
+                ->whereIn('year', $yearVariants)
                 ->where('status', 'approved')
-                ->sum('target');
+                ->get();
 
-            $saleItems = SaleItem::with('sale')
-                ->where('salesperson_code', (string) $staff->employee_id)
-                ->whereHas('sale', function ($q) use ($from, $to, $branchName) {
-                    $q->where('shop_name', $branchName)
-                        ->whereBetween('date', [
-                            $from->toDateString(),
-                            $to->toDateString(),
-                        ]);
-                })
-                ->get(['invoice_id', 'quantity', 'price']);
+            $assigned = [
+                'garments' => 0.0,
+                'unstitched' => 0.0,
+                'accessories' => 0.0,
+            ];
 
-            $achieved = (float) $saleItems->sum(function ($item) {
-                return max(0, (float) $item->quantity);
-            });
+            foreach ($targets as $assignedTarget) {
+                $key = strtolower(trim((string) $assignedTarget->category));
+                if (isset($assigned[$key])) {
+                    $assigned[$key] += max(0, (float) $assignedTarget->target);
+                }
+            }
 
-            $achieved = $target > 0 ? min($achieved, $target) : $achieved;
+            foreach ($assigned as $category => $value) {
+                $assigned[$category] = $this->resolveStaffPeriodTarget($value, $branchTargets, $type);
+            }
 
-            $commission = $target > 0
-                ? CommissionHelper::sumProducts('sales_staff', $saleItems)
-                : 0;
+            $target = array_sum($assigned);
+            $isAssigned = $target > 0;
 
-            $percentage = $target > 0
-                ? min(100, (int) round(($achieved / $target) * 100))
+            $saleItems = $itemsByStaff->get((string) $staff->employee_id, collect());
+
+            $sold = [
+                'garments' => 0.0,
+                'unstitched' => 0.0,
+                'accessories' => 0.0,
+            ];
+
+            foreach ($saleItems as $item) {
+                $itemCategory = strtolower(trim((string) ($item->category ?? '')));
+                foreach ($categoryMappings as $category => $mapping) {
+                    if (in_array($itemCategory, $mapping, true)) {
+                        $sold[$category] += max(0, (float) $item->quantity);
+                        break;
+                    }
+                }
+            }
+
+            $cappedTotal = 0.0;
+            foreach ($assigned as $category => $catTarget) {
+                if ($catTarget > 0) {
+                    $cappedTotal += min($catTarget, $sold[$category]);
+                }
+            }
+
+            $achieved = $isAssigned ? min($target, $cappedTotal) : 0;
+
+            /*
+            |--------------------------------------------------------------------------
+            | Commission — Sales History formula
+            | (price − discount) × qty × sales_staff rate @ sale date
+            | Round per invoice, then sum
+            |--------------------------------------------------------------------------
+            */
+
+            $commission = 0.0;
+            if ($isAssigned) {
+                foreach ($saleItems->groupBy('invoice_id') as $invoiceItems) {
+                    $saleDate = $invoiceItems->first()->date;
+                    $dateKey = (string) $saleDate;
+                    if (!array_key_exists($dateKey, $rateCache)) {
+                        $rateCache[$dateKey] = CommissionHelper::rateFor('sales_staff', $saleDate);
+                    }
+                    $rate = $rateCache[$dateKey];
+
+                    $invoiceCommission = round($invoiceItems->sum(function ($item) use ($rate) {
+                        $price = max(0, (float) $item->price);
+                        $discount = max(0, (float) $item->discount);
+                        $quantity = (int) $item->quantity;
+                        $salesAmount = ($price - $discount) * $quantity;
+
+                        return ($salesAmount * $rate) / 100;
+                    }), 2);
+
+                    $commission += $invoiceCommission;
+                }
+                $commission = round($commission, 2);
+            }
+
+            $percentage = $isAssigned
+                ? (int) min(100, round(($achieved / $target) * 100))
                 : 0;
 
             $rows[] = [
                 'staff_id' => $staff->id,
                 'name' => $staff->name,
                 'is_you' => (int) $staff->id === (int) $user->id,
-                'target' => $target,
-                'achieved' => $achieved,
+                'target' => $isAssigned ? $target : 0,
+                'achieved' => $isAssigned ? $achieved : 0,
                 'achievement_percentage' => $percentage,
-                'remaining_percentage' => $target > 0 ? (100 - $percentage) : 0,
+                'remaining_percentage' => $isAssigned ? (100 - $percentage) : 0,
                 'commission' => $commission,
             ];
-        } 
+        }
 
         usort($rows, function ($a, $b) {
             return $b['achievement_percentage'] <=> $a['achievement_percentage'];
@@ -392,6 +584,75 @@ class AppScreenController extends Controller
                 'chart' => $chart,
             ],
         ]);
+    }
+
+    private function currentWeekRangeOfMonth(): array
+    {
+        $now = Carbon::now();
+        $monthStart = $now->copy()->startOfMonth()->startOfDay();
+        $monthEnd = $now->copy()->endOfMonth()->endOfDay();
+
+        for ($i = 1; $i <= 4; $i++) {
+            $start = $monthStart->copy()->addDays(($i - 1) * 7)->startOfDay();
+            $end = $start->copy()->addDays(6)->endOfDay();
+
+            if ($i === 4 || $end->gt($monthEnd)) {
+                $end = $monthEnd->copy()->endOfDay();
+            }
+
+            if ($now->between($start, $end)) {
+                return [$start, $end];
+            }
+        }
+
+        return [$monthStart, $monthEnd];
+    }
+
+    private function currentWeekOfMonth(): int
+    {
+        $now = Carbon::now();
+        $monthStart = $now->copy()->startOfMonth();
+        $monthEnd = $now->copy()->endOfMonth();
+
+        for ($i = 1; $i <= 4; $i++) {
+            $start = $monthStart->copy()->addDays(($i - 1) * 7)->startOfDay();
+            $end = $start->copy()->addDays(6)->endOfDay();
+
+            if ($i === 4 || $end->gt($monthEnd)) {
+                $end = $monthEnd->copy()->endOfDay();
+            }
+
+            if ($now->between($start, $end)) {
+                return $i;
+            }
+
+        }
+
+        return min(4, (int) ceil($now->day / 7));
+    }
+
+    private function resolveStaffPeriodTarget(float $monthlyAssigned, $branchTargets, string $period): float
+    {
+        if ($monthlyAssigned <= 0) {
+            return 0;
+        }
+
+        if ($period !== 'weekly') {
+            return $monthlyAssigned;
+        }
+
+        $weekColumn = 'week_' . $this->currentWeekOfMonth();
+
+        if ($branchTargets->isEmpty()) {
+            $weekPercent = 25;
+        } else {
+            $weekPercent = (float) $branchTargets->avg($weekColumn);
+            if ($weekPercent <= 0) {
+                $weekPercent = 25;
+            }
+        }
+
+        return round(($monthlyAssigned * $weekPercent) / 100, 2);
     }
 
     private function roleModelClass(string $role): string

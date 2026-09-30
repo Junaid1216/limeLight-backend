@@ -275,18 +275,35 @@ class SurveyController extends Controller
             return $branch;
         }
 
-        $staffQuery = SaleStaff::where('branch_id', $branch->id);
-        $totalStaff = (clone $staffQuery)->count();
-        $staffIds = (clone $staffQuery)->pluck('id');
+        $staffIds = SaleStaff::where('branch_id', $branch->id)->pluck('id');
+        $managerIds = BranchManager::where('branch_id', $branch->id)->pluck('id');
+        $asmIds = $branch->region_id
+            ? AreaSaleManager::where('region_id', $branch->region_id)->pluck('id')
+            : collect();
+
+        // Eligible respondents: branch staff + branch managers + region ASMs
+        $totalEligible = $staffIds->count() + $managerIds->count() + $asmIds->count();
 
         $submissions = SurveySubmission::where('survey_id', $survey->id)
-            ->where('user_type', 'sale_staff')
-            ->whereIn('user_id', $staffIds)
+            ->where(function ($query) use ($staffIds, $managerIds, $asmIds) {
+                $query->where(function ($q) use ($staffIds) {
+                    $q->where('user_type', 'sale_staff')
+                        ->whereIn('user_id', $staffIds);
+                })
+                ->orWhere(function ($q) use ($managerIds) {
+                    $q->where('user_type', 'branch_manager')
+                        ->whereIn('user_id', $managerIds);
+                })
+                ->orWhere(function ($q) use ($asmIds) {
+                    $q->where('user_type', 'area_sale_manager')
+                        ->whereIn('user_id', $asmIds);
+                });
+            })
             ->with('answers.option')
             ->get();
 
         $completed = $submissions->count();
-        $responseRate = $totalStaff > 0 ? round(($completed / $totalStaff) * 100) : 0;
+        $responseRate = $totalEligible > 0 ? round(($completed / $totalEligible) * 100) : 0;
 
         // Overall option breakdown (matches Figma High / Fair / Low bars)
         $optionTotals = [];
@@ -355,8 +372,11 @@ class SurveyController extends Controller
             ],
             'stats' => [
                 'total_responses' => $completed,
-                'total_staff' => $totalStaff,
-                'responses_label' => $completed . '/' . $totalStaff,
+                'total_staff' => $totalEligible,
+                'total_sale_staff' => $staffIds->count(),
+                'total_branch_managers' => $managerIds->count(),
+                'total_asms' => $asmIds->count(),
+                'responses_label' => $completed . '/' . $totalEligible,
                 'response_rate' => $responseRate,
                 'response_rate_label' => $responseRate . '% response rate',
             ],

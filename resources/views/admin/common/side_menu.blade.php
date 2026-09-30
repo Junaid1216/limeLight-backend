@@ -242,6 +242,19 @@
             @endif
 
             @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Feedback') && $sideMenuPermissions['Feedback']->contains('view')))
+                <li class="dropdown {{ request()->is('admin/feedback') || request()->is('admin/feedback/*') ? 'active' : ''}}">
+                    <a href="{{ url('admin/feedback') }}" class="nav-link">
+                        <i data-feather="message-square"></i>
+                        <span>Feedback</span>
+                        <span id="feedback-unread-badge" class="feedback-menu-badge">
+                            {{ ($feedbackUnreadCount ?? 0) > 10 ? '10+' : ($feedbackUnreadCount ?? 0) }}
+                        </span>
+                    </a>
+                </li>
+            @endif
+
+            @if (Auth::guard('admin')->check() ||
                     ($sideMenuPermissions->has('Assigned Targets') && $sideMenuPermissions['Assigned Targets']->contains('view')))
                 <li class="dropdown {{ request()->is('admin/assigned-targets') || request()->is('admin/assigned-targets/*') ? 'active' : ''}}">
                     <a href="{{ url('admin/assigned-targets') }}" class="nav-link">

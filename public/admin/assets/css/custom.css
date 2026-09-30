@@ -6,6 +6,41 @@
     --theme-color-dark: #4d4d4f;
 }
 
+.feedback-menu-badge {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 22px !important;
+    height: 22px !important;
+    min-width: 22px !important;
+    max-width: 22px !important;
+    margin-left: 8px !important;
+    margin-top: 0 !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
+    background-color: var(--theme-color);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    flex: 0 0 22px;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.main-sidebar .sidebar-menu li.active > a .feedback-menu-badge,
+.main-sidebar .sidebar-menu li.dropdown.active > a .feedback-menu-badge {
+    background-color: #fff;
+    color: var(--theme-color);
+}
+
+/* Keep Feedback feather icon the same size as other menu items */
+.main-sidebar .sidebar-menu li a .feather {
+    height: 18px !important;
+    width: 18px !important;
+    flex-shrink: 0;
+}
+
 .selectric .label {
     white-space: unset !important;
     overflow: unset !important;

@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\ContactController;
 use App\Http\Controllers\Admin\DesignationController;
 use App\Http\Controllers\Admin\DisplayCategoryController;
 use App\Http\Controllers\Admin\FaqController;
+use App\Http\Controllers\Admin\FeedBackController;
 use App\Http\Controllers\Admin\HierarchyController;
 use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\RegionController;
@@ -257,9 +258,16 @@ Route::get('/peer-branch-conversion', [PeerBranchConversionController::class, 'i
 
 // ############ Announcements #################
 Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcement.index')->middleware('check.permission:Announcements,view');
+Route::get('/announcements/users-by-roles', [AnnouncementController::class, 'usersByRoles'])->name('announcement.users.by.roles')->middleware('check.permission:Announcements,view');
 Route::post('/announcements/store', [AnnouncementController::class, 'store'])->name('announcement.store')->middleware('check.permission:Announcements,create');
 Route::post('/announcements/update/{id}', [AnnouncementController::class, 'update'])->name('announcement.update')->middleware('check.permission:Announcements,edit');
 Route::delete('/announcements/destroy/{id}', [AnnouncementController::class, 'delete'])->name('announcement.destroy')->middleware('check.permission:Announcements,delete');
+Route::delete('/announcements/notification-destroy/{id}', [AnnouncementController::class, 'deleteNotification'])->name('announcement.notification.destroy')->middleware('check.permission:Announcements,delete');
+
+// ############ Feedback #################
+Route::get('/feedback', [FeedBackController::class, 'index'])->name('feedback.index')->middleware('check.permission:Feedback,view');
+Route::get('/feedback/unread-count', [FeedBackController::class, 'unreadCount'])->name('feedback.unread.count')->middleware('check.permission:Feedback,view');
+Route::delete('/feedback/destroy/{id}', [FeedBackController::class, 'delete'])->name('feedback.destroy')->middleware('check.permission:Feedback,delete');
 
 // ############ Assigned Targets #################
 Route::get('/assigned-targets', [AssignedTargetController::class, 'index'])->name('assigned.target.index')->middleware('check.permission:Assigned Targets,view');

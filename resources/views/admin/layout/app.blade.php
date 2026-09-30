@@ -111,6 +111,40 @@
     <!-- ========== Custom Project JS ========== -->
     <script src="{{ asset('public/admin/assets/js/custom.js') }}"></script>
 
+    <!-- ========== Feedback unread counter (auto-refresh) ========== -->
+    @if (Auth::guard('admin')->check() || Auth::guard('subadmin')->check())
+    <script>
+        (function () {
+            var badge = document.getElementById('feedback-unread-badge');
+            if (!badge) {
+                return;
+            }
+
+            var url = @json(route('feedback.unread.count'));
+
+            function updateFeedbackBadge() {
+                fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    credentials: 'same-origin'
+                })
+                    .then(function (res) { return res.json(); })
+                    .then(function (data) {
+                        var count = parseInt(data.count, 10) || 0;
+                        badge.textContent = count > 10 ? '10+' : String(count);
+                    })
+                    .catch(function () { /* ignore network errors */ });
+            }
+
+            updateFeedbackBadge();
+            setInterval(updateFeedbackBadge, 15000);
+        })();
+    </script>
+    @endif
+
     <!-- ========== Blade Page-Specific JS ========== -->
     @yield('js')
 

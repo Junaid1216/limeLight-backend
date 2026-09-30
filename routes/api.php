@@ -69,6 +69,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Sale Staff Feedback
     Route::post('/staff-feedback', [FeedBackController::class, 'stafffeedback']);
+    // Branch Manager Feedback
+    Route::post('/manager-feedback', [FeedBackController::class, 'managerfeedback']);
     // ASM Feedback
     Route::post('/asm-feedback', [FeedBackController::class, 'asmfeedback']);
 

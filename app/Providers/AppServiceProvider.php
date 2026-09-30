@@ -2,11 +2,13 @@
 
 namespace App\Providers;
 
+use App\Models\FeedBack;
 use App\Models\SubAdmin;
 use App\Models\UserRolePermission;
 use App\Repositories\Api\AuthRepository;
 use App\Repositories\Api\Interfaces\AuthRepositoryInterface;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -56,6 +58,17 @@ public function boot()
         }
 
         $view->with('sideMenuPermissions', $sideMenuPermissions);
+
+        $feedbackUnreadCount = 0;
+        if (
+            (Auth::guard('admin')->check() || Auth::guard('subadmin')->check())
+            && Schema::hasTable('feed_backs')
+            && Schema::hasColumn('feed_backs', 'is_read')
+        ) {
+            $feedbackUnreadCount = FeedBack::where('is_read', 0)->count();
+        }
+
+        $view->with('feedbackUnreadCount', $feedbackUnreadCount);
     });
 }
 
