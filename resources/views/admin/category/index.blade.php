@@ -13,15 +13,24 @@
 
                                 <h4 class="mb-0">Line Items</h4>
 
-                                <div style="width:250px;">
-                                    <select id="categoryFilter" class="form-control" style="border-radius: 0.2rem;">
-                                        <option value="">All Categories</option>
-                                        @foreach ($categories as $category)
-                                            <option value="{{ $category->name }}">
-                                                {{ $category->name }}
-                                            </option>
-                                        @endforeach
-                                    </select>
+                                <div class="d-flex align-items-center" style="gap:10px;">
+                                    <div style="width:250px;">
+                                        <select id="categoryFilter" class="form-control" style="border-radius: 0.2rem;">
+                                            <option value="">All Categories</option>
+                                            @foreach ($categories as $category)
+                                                <option value="{{ $category->name }}">
+                                                    {{ $category->name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+
+                                    <form method="POST" action="{{ route('lineitems.sync') }}" class="mb-0">
+                                        @csrf
+                                        <button type="submit" class="btn btn-primary" style="background-color:#609b90;white-space:nowrap;">
+                                            <i class="fa fa-sync"></i> Sync Line Items
+                                        </button>
+                                    </form>
                                 </div>
 
                             </div>
@@ -45,13 +54,22 @@
 
                                             <td>{{ $item->name ?? '-' }}</td>
 
-                                            <td>
+                                           <td>
                                                 <span class="badge badge-info">
+                                                    @if($item->name == 'Non-Tradable')
+                                                        N/A
+                                                    @else
                                                     {{ $item->category->name ?? 'Unassigned' }}
+                                                    @endif
                                                 </span>
                                             </td>
 
                                             <td>
+                                                @if($item->name == 'Non-Tradable')
+                                                    <span class="badge badge-info">
+                                                        N/A
+                                                    </span>
+                                                @else
                                                 <form method="POST"
                                                       action="{{ route('lineitem.update', $item->id) }}"
                                                       class="d-flex align-items-center"
@@ -73,6 +91,7 @@
                                                         <i class="fa fa-save"></i>
                                                     </button>
                                                 </form>
+                                                @endif
                                             </td>
 
                                         </tr>

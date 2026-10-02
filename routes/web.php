@@ -199,6 +199,7 @@ Route::delete('/sale-staff-destroy/{id}', [SaleStaffController::class, 'destroy'
 
 // ############ Category ################
 Route::get('/category',[CategoryController::class, 'index'])->name('category.index')->middleware('check.permission:Line Items,view');
+Route::post('/category/sync-line-items',[CategoryController::class, 'sync'])->name('lineitems.sync')->middleware('check.permission:Line Items,edit');
 Route::post('line-item/{id}/update', [CategoryController::class, 'update']) ->name('lineitem.update');
 
 // ############ Hierarchy ################

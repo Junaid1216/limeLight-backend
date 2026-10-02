@@ -146,6 +146,10 @@ class SyncThirdPartyData extends Command
         ]);
         // #endregion
 
+        // V3 is a separate API used only for line_items (not sales)
+        $this->info('Syncing line items from GetSalesByDateV3...');
+        $this->syncLineItemsFromV3($start, $end);
+
         $this->info('Syncing transactions...');
         $this->syncTransactionSummaries($branches);
 
@@ -346,7 +350,6 @@ class SyncThirdPartyData extends Command
     {
         $saved = 0;
         $branchesByName = $branches->keyBy('name');
-        // $lineItemNames = [];
 
         foreach ($branchesByName as $shopName => $branch) {
             $shopSales = $salesByShop[$shopName] ?? [];
@@ -355,26 +358,19 @@ class SyncThirdPartyData extends Command
             }
 
             $this->saveBranchSales($shopSales);
-            // $lineItemNames = array_merge($lineItemNames, $this->saveBranchSales($shopSales));
             $count = count($shopSales);
             $saved += $count;
             $this->info("Sales saved: {$shopName} ({$count} invoices)");
         }
 
-        // if (!empty($lineItemNames)) {
-        //     app(LineItemSyncService::class)->syncFromNames($lineItemNames);
-        // }
-
         return $saved;
     }
 
     /**
-     * @return array<int, string|null> product names for line-item sync
+     * Persist V2 sales invoices and line-level sale_items.
      */
     private function saveBranchSales(array $sales): void
     {
-        // $lineItemNames = [];
-
         foreach ($sales as $sale) {
             $invoice = Sale::updateOrCreate(
                 [
@@ -424,12 +420,28 @@ class SyncThirdPartyData extends Command
                         'sale_key' => ($sale['ShopId'] ?? '') . '|' . ($sale['InvoiceNo'] ?? ''),
                     ]
                 );
-
-                // $lineItemNames[] = $item['ProductName'] ?? null;
             }
         }
+    }
 
-        // return $lineItemNames;
+    /**
+     * Sync unique LineItem column values from GetSalesByDateV3 into line_items.
+     * Independent of V2 sales sync — failures here do not roll back sales.
+     */
+    private function syncLineItemsFromV3(Carbon $start, Carbon $end): void
+    {
+        try {
+            $result = app(LineItemSyncService::class)->syncFromV3Api($start, $end);
+            $this->info(
+                'Line items synced from V3: '
+                . $result['unique'] . ' unique, '
+                . $result['created'] . ' new'
+                . ($result['had_failure'] ? ' (some days failed)' : '')
+            );
+        } catch (\Throwable $e) {
+            Log::error('Line items V3 sync failed', ['error' => $e->getMessage()]);
+            $this->warn('Line items sync failed: ' . $e->getMessage());
+        }
     }
 
     private function syncTransactionSummaries($branches): void

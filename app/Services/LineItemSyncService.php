@@ -3,26 +3,70 @@
 namespace App\Services;
 
 use App\Models\LineItem;
-use App\Models\SaleItem;
+use Carbon\Carbon;
+use Carbon\CarbonPeriod;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class LineItemSyncService
 {
-    /**
-     * Sync unique product names from sale_items into line_items.
-     * Existing names are skipped (case-insensitive, whitespace-normalized).
-     * New rows stay Unassigned. Stale category-based rows are removed.
-     */
-    public function syncFromSaleItems(): int
-    {
-        $names = $this->collectProductNamesFromSaleItems();
-        $created = $this->upsertNewNames($names);
-        $this->removeNamesNotIn($names);
+    private const LINE_ITEMS_API_URL = 'http://202.141.241.251:96/api/Sales/GetSalesByDateV3';
+    private const SALES_APP_ID = 10;
+    private const SALES_APP_KEY = 'jgiDwu3HwlKgbS9qorWmsVzhJ4oP0s5j';
+    private const CONNECT_TIMEOUT = 20;
+    private const TIMEOUT = 300;
+    private const MAX_ATTEMPTS = 3;
+    private const RETRY_BASE_MS = 2000;
 
-        return $created;
+    /**
+     * Fetch unique LineItem values from GetSalesByDateV3 for the date range
+     * and upsert them into line_items. Existing category mappings are kept.
+     *
+     * @return array{created: int, unique: int, had_failure: bool}
+     */
+    public function syncFromV3Api(Carbon $start, Carbon $end): array
+    {
+        $names = [];
+        $hadFailure = false;
+        $period = CarbonPeriod::create($start->copy()->startOfDay(), $end->copy()->startOfDay());
+
+        foreach ($period as $day) {
+            /** @var Carbon $day */
+            $salesList = $this->fetchV3SalesForDateRange(
+                $day->copy()->startOfDay(),
+                $day->copy()->endOfDay()
+            );
+
+            if ($salesList === null) {
+                $hadFailure = true;
+                continue;
+            }
+
+            foreach ($salesList as $sale) {
+                foreach (($sale['data'] ?? []) as $item) {
+                    $name = $this->normalize($item['LineItem'] ?? null);
+                    if ($name !== null) {
+                        $names[mb_strtolower($name)] = $name;
+                    }
+                }
+            }
+        }
+
+        // Always keep Non-Tradable for UI
+        $names['non-tradable'] = 'Non-Tradable';
+
+        $created = $this->upsertNewNames($names);
+
+        return [
+            'created' => $created,
+            'unique' => count($names),
+            'had_failure' => $hadFailure,
+        ];
     }
 
     /**
-     * Upsert unique product names from an API/sales batch.
+     * Upsert unique LineItem names from an in-memory batch.
      *
      * @param  iterable<string|null>  $rawNames
      */
@@ -41,7 +85,6 @@ class LineItemSyncService
 
     /**
      * Remove duplicate line_items (same normalized name), keeping the best row.
-     * Also normalizes remaining names (collapse whitespace).
      */
     public function dedupeExisting(): int
     {
@@ -58,8 +101,7 @@ class LineItemSyncService
 
         $deleted = 0;
 
-        foreach ($groups as $lower => $group) {
-            // Prefer a row that already has a category mapped; otherwise keep newest
+        foreach ($groups as $group) {
             $keep = $group->first(function ($item) {
                 return !empty($item->category_id);
             }) ?? $group->first();
@@ -84,65 +126,59 @@ class LineItemSyncService
     }
 
     /**
-     * @return array<string, string> lower => display
+     * @return array|null SalesList on success, [] when empty, null on hard failure
      */
-    private function collectProductNamesFromSaleItems(): array
+    private function fetchV3SalesForDateRange(Carbon $start, Carbon $end): ?array
     {
-        $names = [];
+        $params = [
+            'AppId' => self::SALES_APP_ID,
+            'AppKey' => self::SALES_APP_KEY,
+            'SaleFromDate' => $start->format('Y-m-d H:i:s'),
+            'SaleToDate' => $end->format('Y-m-d H:i:s'),
+        ];
 
-        $values = SaleItem::query()
-            ->select('product_name')
-            ->whereNotNull('product_name')
-            ->where('product_name', '!=', '')
-            ->distinct()
-            ->pluck('product_name');
+        $lastError = null;
 
-        foreach ($values as $raw) {
-            $name = $this->normalize($raw);
-            if ($name !== null) {
-                $names[mb_strtolower($name)] = $name;
+        for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
+            try {
+                $response = Http::withOptions([
+                        'connect_timeout' => self::CONNECT_TIMEOUT,
+                        'timeout' => self::TIMEOUT,
+                    ])
+                    ->get(self::LINE_ITEMS_API_URL, $params);
+
+                if ($response->successful()) {
+                    $salesList = $response->json('SalesList') ?? [];
+                    return is_array($salesList) ? $salesList : [];
+                }
+
+                $lastError = 'HTTP ' . $response->status();
+                if ($response->status() < 500 && $response->status() !== 429) {
+                    break;
+                }
+            } catch (ConnectionException $e) {
+                $lastError = $e->getMessage();
+            } catch (\Throwable $e) {
+                $lastError = $e->getMessage();
+                Log::error('Line items V3 API unexpected error', [
+                    'attempt' => $attempt,
+                    'error' => $lastError,
+                ]);
+                break;
+            }
+
+            if ($attempt < self::MAX_ATTEMPTS) {
+                usleep(self::RETRY_BASE_MS * (2 ** ($attempt - 1)) * 1000);
             }
         }
 
-        // Keep special Non-Tradable row used by the UI
-        $names['non-tradable'] = 'Non-Tradable';
+        Log::warning('Line items V3 sync failed', [
+            'from' => $params['SaleFromDate'],
+            'to' => $params['SaleToDate'],
+            'error' => $lastError,
+        ]);
 
-        return $names;
-    }
-
-    /**
-     * Drop line items that are not current product names (old category rows).
-     *
-     * @param  array<string, string>  $allowedNames
-     */
-    private function removeNamesNotIn(array $allowedNames): int
-    {
-        if (empty($allowedNames)) {
-            return 0;
-        }
-
-        $deleted = 0;
-        LineItem::query()
-            ->select(['id', 'name'])
-            ->orderBy('id')
-            ->chunkById(200, function ($items) use ($allowedNames, &$deleted) {
-                $ids = [];
-                foreach ($items as $item) {
-                    $normalized = $this->normalize($item->name);
-                    if ($normalized === null) {
-                        $ids[] = $item->id;
-                        continue;
-                    }
-                    if (!isset($allowedNames[mb_strtolower($normalized)])) {
-                        $ids[] = $item->id;
-                    }
-                }
-                if (!empty($ids)) {
-                    $deleted += LineItem::whereIn('id', $ids)->delete();
-                }
-            });
-
-        return $deleted;
+        return null;
     }
 
     /**
