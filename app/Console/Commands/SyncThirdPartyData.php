@@ -2,16 +2,21 @@
 
 namespace App\Console\Commands;
 
+use App\Models\AreaSaleManager;
 use App\Models\Branch;
+use App\Models\BranchManager;
+use App\Models\Designation;
 use App\Models\FootfallDailySummary;
 use App\Models\Sale;
 use App\Models\SaleItem;
+use App\Models\SaleStaff;
 use App\Models\TransactionSummary;
 use App\Services\LineItemSyncService;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -61,28 +66,15 @@ class SyncThirdPartyData extends Command
         };
         // #endregion
 
-        $branches = Branch::whereNotNull('branch_id')
-            ->where('branch_id', '!=', '')
-            ->get();
-
-        if ($branches->isEmpty()) {
-            $this->warn('No branches found');
-            // #region agent log
-            $__dbg('H5', 'no branches found', ['branch_count' => 0]);
-            // #endregion
-            return 0;
-        }
-
         [$start, $end] = $this->resolveDateRange();
 
         $this->info('Date range: ' . $start->toDateTimeString() . ' -> ' . $end->toDateTimeString());
-        $this->info('Branches: ' . $branches->count());
 
         // #region agent log
         $__dbg('H1', 'sync start', [
             'from' => $start->toDateTimeString(),
             'to' => $end->toDateTimeString(),
-            'branch_count' => $branches->count(),
+            'branch_count' => Branch::count(),
             'sales_before' => \App\Models\Sale::count(),
             'sale_items_before' => \App\Models\SaleItem::count(),
         ]);
@@ -93,6 +85,16 @@ class SyncThirdPartyData extends Command
         $salesResult = $this->fetchSalesGroupedByShop($start, $end);
         $salesByShop = $salesResult['grouped'];
         $hadSalesFailure = $salesResult['had_failure'];
+
+        $this->info('Syncing branches from GetSalesByDateV2 ShopName...');
+        $this->syncBranchesFromSalesApi($salesByShop);
+
+        $this->info('Syncing sales staff from GetSalesByDateV2...');
+        $this->syncSaleStaffFromSalesApi($salesByShop);
+
+        $branches = Branch::whereNotNull('branch_id')
+            ->where('branch_id', '!=', '')
+            ->get();
 
         // #region agent log
         $shopKeys = array_keys($salesByShop);
@@ -120,12 +122,12 @@ class SyncThirdPartyData extends Command
         $this->info('Saving sales...');
         // #region agent log
         $__dbg('H3', 'persistSales starting (before transactions)', [
-            'shops_to_persist' => count($matched),
+            'shops_to_persist' => count($salesByShop),
             'in_memory_invoices' => array_sum(array_map('count', $salesByShop)),
         ]);
         // #endregion
         try {
-            $savedInvoices = $this->persistSales($branches, $salesByShop);
+            $savedInvoices = $this->persistSales($salesByShop);
         } catch (\Throwable $e) {
             // #region agent log
             $__dbg('H4', 'persistSales exception', [
@@ -150,15 +152,19 @@ class SyncThirdPartyData extends Command
         $this->info('Syncing line items from GetSalesByDateV3...');
         $this->syncLineItemsFromV3($start, $end);
 
-        $this->info('Syncing transactions...');
-        $this->syncTransactionSummaries($branches);
+        if ($branches->isEmpty()) {
+            $this->warn('No branches with Branch ID — skipping transactions and footfall.');
+        } else {
+            $this->info('Syncing transactions...');
+            $this->syncTransactionSummaries($branches);
 
-        // #region agent log
-        $__dbg('H3', 'transactions finished', []);
-        // #endregion
+            // #region agent log
+            $__dbg('H3', 'transactions finished', []);
+            // #endregion
 
-        $this->info('Syncing footfall (all branches, one request)...');
-        $this->syncAllFootfall($branches, $start, $end);
+            $this->info('Syncing footfall (all branches, one request)...');
+            $this->syncAllFootfall($branches, $start, $end);
+        }
 
         $seconds = round(microtime(true) - $startedAt, 2);
         $this->info("Completed in {$seconds}s");
@@ -346,14 +352,186 @@ class SyncThirdPartyData extends Command
         return null;
     }
 
-    private function persistSales($branches, array $salesByShop): int
+    /**
+     * Create missing branches from V2 ShopName / ShopId.
+     * Existing Yofi outlet IDs on branch_id are never overwritten.
+     */
+    private function syncBranchesFromSalesApi(array $salesByShop): void
+    {
+        $created = 0;
+        $filled = 0;
+
+        foreach ($salesByShop as $shopName => $shopSales) {
+            $shopName = trim((string) $shopName);
+            if ($shopName === '') {
+                continue;
+            }
+
+            $shopId = null;
+            foreach ($shopSales as $sale) {
+                $id = trim((string) ($sale['ShopId'] ?? ''));
+                if ($id !== '') {
+                    $shopId = $id;
+                    break;
+                }
+            }
+
+            $branch = Branch::where('name', $shopName)->first();
+
+            if (!$branch) {
+                Branch::create([
+                    'name' => $shopName,
+                    'branch_id' => $shopId,
+                    'city' => null,
+                    'address' => null,
+                    'region_id' => null,
+                ]);
+                $created++;
+                continue;
+            }
+
+            if ((string) $branch->branch_id === '' && $shopId !== null) {
+                $branch->branch_id = $shopId;
+                $branch->save();
+                $filled++;
+            }
+        }
+
+        $this->info("Branches from API: {$created} created, {$filled} Branch ID filled");
+    }
+
+    /**
+     * Create/update sale staff from V2 SalesPersonName / SalesPersonCode.
+     * Branch is the ShopName they last sold in. Designation is a default for new/empty rows.
+     */
+    private function syncSaleStaffFromSalesApi(array $salesByShop): void
+    {
+        $people = [];
+
+        foreach ($salesByShop as $shopName => $shopSales) {
+            $shopName = trim((string) $shopName);
+            foreach ($shopSales as $sale) {
+                foreach (($sale['data'] ?? []) as $item) {
+                    $code = trim((string) ($item['SalesPersonCode'] ?? ''));
+                    if ($code === '') {
+                        continue;
+                    }
+
+                    $name = trim((string) ($item['SalesPersonName'] ?? ''));
+                    $people[$code] = [
+                        'code' => $code,
+                        'name' => $name !== '' ? $name : $code,
+                        'shop_name' => $shopName,
+                    ];
+                }
+            }
+        }
+
+        if (empty($people)) {
+            $this->info('Sales staff from API: none found');
+            return;
+        }
+
+        $defaultDesignation = Designation::query()
+            ->whereRaw('LOWER(name) LIKE ?', ['%staff%'])
+            ->orderBy('id')
+            ->first()
+            ?? Designation::query()->orderBy('id')->first();
+
+        if (!$defaultDesignation) {
+            $this->warn('No designations found — skipping sales staff sync.');
+            Log::warning('Sales staff sync skipped: no designations');
+            return;
+        }
+
+        $branchesByName = Branch::query()
+            ->whereNotNull('name')
+            ->where('name', '!=', '')
+            ->get()
+            ->keyBy('name');
+
+        $created = 0;
+        $updated = 0;
+        $skipped = 0;
+
+        foreach ($people as $person) {
+            $code = $person['code'];
+
+            if (
+                AreaSaleManager::where('employee_id', $code)->exists()
+                || BranchManager::where('employee_id', $code)->exists()
+            ) {
+                $skipped++;
+                continue;
+            }
+
+            $branch = $branchesByName->get($person['shop_name']);
+            $branchId = $branch ? $branch->id : null;
+            $staff = SaleStaff::where('employee_id', $code)->first();
+
+            if (!$staff) {
+                SaleStaff::create([
+                    'employee_id' => $code,
+                    'name' => $person['name'],
+                    'email' => $this->uniqueSyncEmail($code),
+                    'password' => Hash::make('12345678'),
+                    'designation_id' => $defaultDesignation->id,
+                    'branch_id' => $branchId,
+                    'image' => 'public/admin/assets/images/avator.png',
+                ]);
+                $created++;
+                continue;
+            }
+
+            $changed = false;
+
+            if ($person['name'] !== '' && $staff->name !== $person['name']) {
+                $staff->name = $person['name'];
+                $changed = true;
+            }
+
+            if ($branchId && (int) $staff->branch_id !== (int) $branchId) {
+                $staff->branch_id = $branchId;
+                $changed = true;
+            }
+
+            if (empty($staff->designation_id)) {
+                $staff->designation_id = $defaultDesignation->id;
+                $changed = true;
+            }
+
+            if ($changed) {
+                $staff->save();
+                $updated++;
+            }
+        }
+
+        $this->info("Sales staff from API: {$created} created, {$updated} updated, {$skipped} skipped (ASM/BM)");
+    }
+
+    private function uniqueSyncEmail(string $code): string
+    {
+        $local = strtolower(preg_replace('/[^a-zA-Z0-9._-]+/', '', $code));
+        if ($local === '') {
+            $local = 'staff' . substr(md5($code), 0, 8);
+        }
+
+        $email = $local . '@limelight.sync';
+        $i = 1;
+        while (SaleStaff::where('email', $email)->exists()) {
+            $email = $local . $i . '@limelight.sync';
+            $i++;
+        }
+
+        return $email;
+    }
+
+    private function persistSales(array $salesByShop): int
     {
         $saved = 0;
-        $branchesByName = $branches->keyBy('name');
 
-        foreach ($branchesByName as $shopName => $branch) {
-            $shopSales = $salesByShop[$shopName] ?? [];
-            if (empty($shopSales)) {
+        foreach ($salesByShop as $shopName => $shopSales) {
+            if (empty($shopSales) || trim((string) $shopName) === '') {
                 continue;
             }
 

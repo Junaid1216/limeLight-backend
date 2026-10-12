@@ -3,190 +3,83 @@
 
 @section('content')
 
-
 <div class="main-content">
 <section class="section">
 <div class="section-body">
 
-<a class="btn btn-primary mb-3" href="{{ route('target.index') }}">Back</a>
+    <a class="btn btn-primary mb-3" href="{{ route('target.index') }}">Back</a>
 
-<form action="{{ route('target.update', $target->id) }}" method="POST">
-@csrf
-@method('POST')
+    <form id="targetForm" action="{{ route('target.update', $target->id) }}" method="POST">
+        @csrf
+        @method('POST')
 
-<div class="card">
-<h4 class="text-center my-4">Edit Target Distribution</h4>
+        <div class="card">
+            <h4 class="text-center my-4">Edit Target Distribution</h4>
 
-<div class="row px-4">
+            <div class="row px-4">
 
-    {{-- Month --}}
-<div class="col-md-3">
-    <div class="form-group">
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label>Month <span style="color: red;">*</span></label>
+                        <select name="month" id="month" class="form-control" required>
+                            <option value="">Select Month</option>
+                            @foreach (['January','February','March','April','May','June','July','August','September','October','November','December'] as $monthName)
+                                <option value="{{ $monthName }}" {{ $target->month == $monthName ? 'selected' : '' }}>{{ $monthName }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
 
-        <label>Month <span style="color: red;">*</span></label>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label>Current Year <span style="color: red;">*</span></label>
+                        <input type="text" class="form-control" value="{{ $target->year }}" disabled>
+                        <input type="hidden" name="year" value="{{ $target->year }}">
+                    </div>
+                </div>
 
-        <select name="month" id="month" class="form-control" required>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label>Branch <span style="color: red;">*</span></label>
+                        <select name="branch_id" id="branch_id" class="form-control" required>
+                            <option value="">Select Branch</option>
+                            @foreach($branches as $branch)
+                                <option value="{{ $branch->id }}" {{ $target->branch_id == $branch->id ? 'selected' : '' }}>
+                                    {{ $branch->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
 
-            <option value="">Select Month</option>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label>Designation <span style="color: red;">*</span></label>
+                        <select name="designation_id" id="designation_id" class="form-control" required>
+                            <option value="">Select Designation</option>
+                        </select>
+                    </div>
+                </div>
 
-            <option value="January" {{ $target->month == 'January' ? 'selected' : '' }}>January</option>
+                <div class="col-md-12">
+                    <div class="form-group">
+                        <label>Category <span style="color: red;">*</span></label>
+                        <select name="categories[]" id="category" class="form-control" multiple required>
+                            <option value="garments">Garments</option>
+                            <option value="unstitched">Unstitched</option>
+                            <option value="accessories">Accessories</option>
+                        </select>
+                    </div>
+                </div>
 
-            <option value="February" {{ $target->month == 'February' ? 'selected' : '' }}>February</option>
+                <div class="col-12" id="category-target-panels"></div>
+            </div>
 
-            <option value="March" {{ $target->month == 'March' ? 'selected' : '' }}>March</option>
-
-            <option value="April" {{ $target->month == 'April' ? 'selected' : '' }}>April</option>
-
-            <option value="May" {{ $target->month == 'May' ? 'selected' : '' }}>May</option>
-
-            <option value="June" {{ $target->month == 'June' ? 'selected' : '' }}>June</option>
-
-            <option value="July" {{ $target->month == 'July' ? 'selected' : '' }}>July</option>
-
-            <option value="August" {{ $target->month == 'August' ? 'selected' : '' }}>August</option>
-
-            <option value="September" {{ $target->month == 'September' ? 'selected' : '' }}>September</option>
-
-            <option value="October" {{ $target->month == 'October' ? 'selected' : '' }}>October</option>
-
-            <option value="November" {{ $target->month == 'November' ? 'selected' : '' }}>November</option>
-
-            <option value="December" {{ $target->month == 'December' ? 'selected' : '' }}>December</option>
-
-        </select>
-
-    </div>
-</div>
-
-{{-- Branch Manager --}}
-{{-- <div class="col-md-4">
-    <div class="form-group">
-        <label>Branch Manager <span style="color:red">*</span></label>
-
-        <select name="branch_manager_id"
-                id="branch_manager_id"
-                class="form-control"
-                required>
-
-            <option value="">Select Branch Manager</option>
-
-        </select>
-
-    </div>
-</div> --}}
-
-<div class="col-md-3">
-    <div class="form-group">
-
-        <label>Current Year <span style="color: red;">*</span></label>
-
-        <input type="text"
-               class="form-control"
-               value="{{ date('Y') }}"
-               disabled>
-
-        <input type="hidden"
-               name="year"
-               value="{{ date('Y') }}">
-
-    </div>
-</div>
-
-{{-- BRANCH --}}
-<div class="col-md-3">
-    <div class="form-group">
-
-        <label>Branch <span style="color: red;">*</span></label>
-
-        <select name="branch_id"
-                id="branch_id"
-                class="form-control"
-                required>
-
-            <option value="">Select Branch</option>
-
-            @foreach($branches as $branch)
-
-                <option value="{{ $branch->id }}"
-                    {{ $target->branch_id == $branch->id ? 'selected' : '' }}>
-
-                    {{ $branch->name }}
-
-                </option>
-
-            @endforeach
-
-        </select>
-
-    </div>
-</div>
-
-{{-- DESIGNATION --}}
-<div class="col-md-3">
-    <div class="form-group">
-
-        <label>Designation <span style="color: red;">*</span></label>
-
-        <select name="designation_id"
-                id="designation_id"
-                class="form-control"
-                required>
-
-            <option value="">Select Designation</option>
-
-        </select>
-
-    </div>
-</div>
-
-{{-- Category --}}
-<div class="col-md-6">
-    <div class="form-group">
-        <label>Category <span style="color: red;">*</span></label>
-        <select name="category" class="form-control" required>
-            <option value="garments" {{ $target->category == 'garments' ? 'selected' : '' }}>Garments</option>
-            <option value="unstitched" {{ $target->category == 'unstitched' ? 'selected' : '' }}>Unstitched</option>
-            <option value="accessories" {{ $target->category == 'accessories' ? 'selected' : '' }}>Accessories</option>
-        </select>
-    </div>
-</div>
-
-{{-- Monthly Target --}}
-<div class="col-md-6">
-    <div class="form-group">
-        <label>Monthly Target <span style="color: red;">*</span></label>
-        <input type="number" id="monthly_target" placeholder="Add Number" name="monthly_target"
-               value="{{ $target->monthly_target }}"
-               class="form-control" required>
-    </div>
-</div>
-
-{{-- Weekly Targets --}}
-@for ($i = 1; $i <= 4; $i++)
-<div class="col-md-3">
-    <label class="font-weight-bold">Week {{ $i }} (%)</label>
-    <input type="number"
-           name="week_{{ $i }}"
-           value="{{ $target['week_'.$i] }}"
-           class="form-control week-input"
-           data-week="{{ $i }}"
-           required>
-
-    <small class="text-success" id="week_{{ $i }}_pieces">
-        0 pieces
-    </small>
-</div>
-@endfor
-
-</div>
-
-<div class="card-footer text-center">
-    <button class="btn btn-primary">Update Target</button>
-</div>
-
-</div>
-
-</form>
+            <div class="card-footer text-center">
+                <button class="btn btn-primary">Update Target</button>
+            </div>
+        </div>
+    </form>
 
 </div>
 </section>
@@ -194,243 +87,252 @@
 
 @endsection
 
-
 @section('js')
-
-<script>
-// =========================================
-// Weekly calculations
-// =========================================
-
-function calculatePieces(){
-
-    let monthly = parseFloat($('#monthly_target').val()) || 0;
-
-    $('.week-input').each(function(){
-
-        let percent = parseFloat($(this).val()) || 0;
-
-        let week = $(this).data('week');
-
-        let pieces = (monthly * percent) / 100;
-
-        $('#week_' + week + '_pieces')
-            .text(Math.round(pieces) + ' products');
-
-    });
-
-}
-
-
-// =========================================
-// On page load
-// =========================================
-
-$(document).ready(function(){
-
-  
-
-    calculatePieces();
-
-});
-
-
-
-
-// recalculate products
-$(document).on(
-    'input',
-    '#monthly_target,.week-input',
-    function(){
-
-        calculatePieces();
-
-    }
-);
-
-
-// prevent >100%
-$('form').submit(function(e){
-
-    let totalPercent = 0;
-
-    $('.week-input').each(function(){
-
-        totalPercent += parseFloat($(this).val()) || 0;
-
-    });
-
-    if(totalPercent > 100){
-
-        e.preventDefault();
-
-        toastr.error(
-            'Weekly Percentages Cannot Exceed 100%'
-        );
-
-        return false;
-    }
-
-});
-
-</script>
-
 @php
     $targetsData = \App\Models\Target::where('id', '!=', $target->id)
-        ->select('branch_id', 'month', 'year')
+        ->select('branch_id', 'month', 'year', 'category')
         ->get();
 @endphp
 
 <script>
-
 const targets = @json($targetsData);
-
-const currentYear = {{ $target->year }};
+const currentYear = {{ (int) $target->year }};
 const currentBranchId = {{ $target->branch_id ?? 'null' }};
 const currentDesignationId = {{ $target->designation_id ?? 'null' }};
+const currentCategory = @json($target->category);
+const currentTargetValues = {
+    monthly_target: {{ (float) $target->monthly_target }},
+    week_1: {{ (float) $target->week_1 }},
+    week_2: {{ (float) $target->week_2 }},
+    week_3: {{ (float) $target->week_3 }},
+    week_4: {{ (float) $target->week_4 }}
+};
+const allCategories = [
+    { value: 'garments', label: 'Garments' },
+    { value: 'unstitched', label: 'Unstitched' },
+    { value: 'accessories', label: 'Accessories' }
+];
 
-</script>
+function assignedCategoriesFor(branchId, month) {
+    return targets
+        .filter(function (target) {
+            return String(target.branch_id) === String(branchId)
+                && target.month == month
+                && String(target.year) == String(currentYear);
+        })
+        .map(function (target) {
+            return String(target.category).toLowerCase();
+        });
+}
 
-<script>
+function categoryLabel(value) {
+    const found = allCategories.find(function (cat) { return cat.value === value; });
+    return found ? found.label : value;
+}
 
-$(document).ready(function () {
+function panelHtml(catValue) {
+    const label = categoryLabel(catValue);
+    return `
+        <div class="card mb-3 category-target-panel" data-category="${catValue}" style="border:1px solid #c5d5d2;">
+            <div class="card-header py-2" style="background:#f4f8f7;">
+                <strong>${label} target</strong>
+            </div>
+            <div class="card-body pb-2">
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <label>Monthly Target <span style="color: red;">*</span></label>
+                        <input type="number" name="targets[${catValue}][monthly_target]"
+                            class="form-control cat-monthly" data-category="${catValue}" required>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <label class="font-weight-bold">1st Week (%) <span style="color: red;">*</span></label>
+                        <input type="number" name="targets[${catValue}][week_1]" class="form-control week-input"
+                            data-category="${catValue}" data-week="1" required>
+                        <small class="text-success pieces" id="${catValue}_week_1_pieces">0</small>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <label class="font-weight-bold">2nd Week (%) <span style="color: red;">*</span></label>
+                        <input type="number" name="targets[${catValue}][week_2]" class="form-control week-input"
+                            data-category="${catValue}" data-week="2" required>
+                        <small class="text-success pieces" id="${catValue}_week_2_pieces">0</small>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <label class="font-weight-bold">3rd Week (%) <span style="color: red;">*</span></label>
+                        <input type="number" name="targets[${catValue}][week_3]" class="form-control week-input"
+                            data-category="${catValue}" data-week="3" required>
+                        <small class="text-success pieces" id="${catValue}_week_3_pieces">0</small>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <label class="font-weight-bold">4th Week (%) <span style="color: red;">*</span></label>
+                        <input type="number" name="targets[${catValue}][week_4]" class="form-control week-input"
+                            data-category="${catValue}" data-week="4" required>
+                        <small class="text-success pieces" id="${catValue}_week_4_pieces">0</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
 
-    loadBranches();
+function calculatePiecesFor(category) {
+    const monthly = parseFloat($('.cat-monthly[data-category="' + category + '"]').val()) || 0;
+    $('.week-input[data-category="' + category + '"]').each(function () {
+        const percent = parseFloat($(this).val()) || 0;
+        const week = $(this).data('week');
+        const pieces = (monthly * percent) / 100;
+        $('#' + category + '_week_' + week + '_pieces').text(Math.round(pieces) + ' products');
+    });
+}
 
-    loadDesignations(currentBranchId);
+function fillCurrentCategoryValues() {
+    const cat = currentCategory;
+    if (!cat) {
+        return;
+    }
+    const $panel = $('.category-target-panel[data-category="' + cat + '"]');
+    if (!$panel.length) {
+        return;
+    }
+    $panel.find('.cat-monthly').val(currentTargetValues.monthly_target);
+    $panel.find('.week-input[data-week="1"]').val(currentTargetValues.week_1);
+    $panel.find('.week-input[data-week="2"]').val(currentTargetValues.week_2);
+    $panel.find('.week-input[data-week="3"]').val(currentTargetValues.week_3);
+    $panel.find('.week-input[data-week="4"]').val(currentTargetValues.week_4);
+    calculatePiecesFor(cat);
+}
 
-    // =========================
-    // MONTH CHANGE
-    // =========================
+function syncCategoryPanels() {
+    const selected = $('#category').val() || [];
+    const $wrap = $('#category-target-panels');
 
-    $('#month').on('change', function () {
-
-        loadBranches();
-
+    $wrap.find('.category-target-panel').each(function () {
+        const cat = $(this).data('category');
+        if (selected.indexOf(String(cat)) === -1) {
+            $(this).remove();
+        }
     });
 
-    // =========================
-    // BRANCH CHANGE
-    // =========================
+    selected.forEach(function (cat) {
+        if ($wrap.find('.category-target-panel[data-category="' + cat + '"]').length === 0) {
+            $wrap.append(panelHtml(cat));
+            if (cat === currentCategory) {
+                fillCurrentCategoryValues();
+            }
+        }
+    });
+}
 
-    $('#branch_id').on('change', function () {
+function initCategorySelect() {
+    if ($('#category').hasClass('select2-hidden-accessible')) {
+        $('#category').select2('destroy');
+    }
+    $('#category').select2({
+        width: '100%',
+        placeholder: 'Select categories',
+        closeOnSelect: false
+    });
+}
 
-        let branchId = $(this).val();
+function refreshCategoryOptions(preselectCurrent) {
+    const month = $('#month').val();
+    const branchId = $('#branch_id').val();
+    const previous = $('#category').val() || [];
 
-        loadDesignations(branchId);
+    if ($('#category').hasClass('select2-hidden-accessible')) {
+        $('#category').select2('destroy');
+    }
 
+    const assigned = (month && branchId) ? assignedCategoriesFor(branchId, month) : [];
+    let options = '';
+
+    allCategories.forEach(function (cat) {
+        const isAssignedOther = assigned.indexOf(cat.value) !== -1;
+        const isCurrent = cat.value === currentCategory;
+        const disabledAttr = isAssignedOther ? ' disabled' : '';
+        const label = isAssignedOther ? (cat.label + ' (Already Assigned)') : cat.label;
+        const keepSelected = !isAssignedOther && (
+            (preselectCurrent && isCurrent) || previous.indexOf(cat.value) !== -1
+        );
+        const selectedAttr = keepSelected ? ' selected' : '';
+        options += '<option value="' + cat.value + '"' + disabledAttr + selectedAttr + '>' + label + '</option>';
     });
 
+    $('#category').html(options);
+    initCategorySelect();
+    syncCategoryPanels();
+}
+
+$(document).on('input', '.cat-monthly, .week-input', function () {
+    const category = $(this).data('category');
+    if (category) {
+        calculatePiecesFor(category);
+    }
 });
 
-// =====================================
-// LOAD BRANCHES
-// =====================================
-
-function loadBranches() {
-
-    let selectedMonth = $('#month').val();
-
-    let branchHtml =
-        '<option value="">Select Branch</option>';
-
-    if(selectedMonth !== '') {
-
-        $('#branch_id').prop('disabled', false);
-
-        @foreach($branches as $branch)
-
-            let alreadyAssigned{{ $branch->id }} =
-                targets.some(function(target){
-
-                    return target.branch_id == {{ $branch->id }}
-                        && target.month == selectedMonth
-                        && target.year == currentYear;
-
-                });
-
-            // show current branch OR unassigned branch
-            if(
-                !alreadyAssigned{{ $branch->id }}
-                ||
-                {{ $branch->id }} == currentBranchId
-            ){
-
-                branchHtml += `
-                    <option value="{{ $branch->id }}"
-                        ${currentBranchId == {{ $branch->id }}
-                            ? 'selected'
-                            : ''}>
-                        {{ $branch->name }}
-                    </option>
-                `;
-
-            }
-
-        @endforeach
-
-        $('#branch_id').html(branchHtml);
-
-    } else {
-
-        $('#branch_id').prop('disabled', true);
-
+$('#targetForm').submit(function (e) {
+    const selected = $('#category').val() || [];
+    if (!selected.length) {
+        e.preventDefault();
+        toastr.error('Please select at least one category.');
+        return false;
     }
 
-}
+    let invalid = false;
+    selected.forEach(function (cat) {
+        let totalPercent = 0;
+        $('.week-input[data-category="' + cat + '"]').each(function () {
+            totalPercent += parseFloat($(this).val()) || 0;
+        });
+        if (totalPercent > 100) {
+            invalid = true;
+            toastr.error(categoryLabel(cat) + ': weekly percentages cannot exceed 100%.');
+        }
+    });
 
-// =====================================
-// LOAD DESIGNATIONS
-// =====================================
+    if (invalid) {
+        e.preventDefault();
+        return false;
+    }
+});
 
 function loadDesignations(branchId) {
-
-    if(branchId !== '') {
-
+    if (branchId !== '') {
         $('#designation_id').prop('disabled', false);
-
         $.ajax({
-
             url: "{{ url('admin/get-branch-designations') }}/" + branchId,
-
             type: "GET",
-
-            success: function(res) {
-
-                let html =
-                    '<option value="">Select Designation</option>';
-
-                res.forEach(function(item){
-
-                    html += `
-                        <option value="${item.id}"
-                            ${item.id == currentDesignationId
-                                ? 'selected'
-                                : ''}>
-                            ${item.name}
-                        </option>
-                    `;
-
+            success: function (res) {
+                let html = '<option value="">Select Designation</option>';
+                res.forEach(function (item) {
+                    html += '<option value="' + item.id + '"'
+                        + (item.id == currentDesignationId ? ' selected' : '')
+                        + '>' + item.name + '</option>';
                 });
-
                 $('#designation_id').html(html);
-
             }
-
         });
-
     } else {
-
-        $('#designation_id').prop('disabled', true);
-
-        $('#designation_id').html(
-            '<option value="">Select Designation</option>'
-        );
-
+        $('#designation_id').prop('disabled', true)
+            .html('<option value="">Select Designation</option>');
     }
-
 }
 
-</script>
+$(document).ready(function () {
+    refreshCategoryOptions(true);
+    loadDesignations(currentBranchId);
 
+    $('#category').on('change', function () {
+        syncCategoryPanels();
+    });
+
+    $('#month').on('change', function () {
+        refreshCategoryOptions(false);
+    });
+
+    $('#branch_id').on('change', function () {
+        loadDesignations($(this).val());
+        refreshCategoryOptions(false);
+    });
+});
+</script>
 @endsection

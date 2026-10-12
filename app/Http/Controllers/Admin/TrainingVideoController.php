@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Helpers\NotificationHelper;
 use App\Http\Controllers\Controller;
 use App\Models\AreaSaleManager;
 use App\Models\BranchManager;
@@ -22,7 +23,8 @@ class TrainingVideoController extends Controller
 
     public function store(Request $request)
 {
-    
+    $isNew = empty($request->id);
+
     $training = $request->id
             ? TrainingVideo::findOrFail($request->id)
             : new TrainingVideo();
@@ -169,6 +171,23 @@ class TrainingVideoController extends Controller
         $training->save();
 
         $this->seedPendingStatusForRoles($training);
+
+        if ($isNew) {
+            $title = trim((string) ($training->title ?: $training->product_name ?: 'New training'));
+            $body = trim((string) ($training->description ?: $training->training_details ?: $title));
+
+            NotificationHelper::sendToRoles(
+                (array) ($training->roles ?? []),
+                $title,
+                $body !== '' ? $body : $title,
+                [
+                    'type' => 'training module',
+                    'source' => 'training',
+                    'training_id' => (string) $training->id,
+                    'training_type' => (string) ($training->training_type ?? ''),
+                ]
+            );
+        }
 
         return back()->with('success','Training Module Saved Successfully');
 }
