@@ -155,6 +155,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //Notifications
     Route::get('/notifications', [NotificationController::class, 'getUserNotifications']);
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
 
     // App screens — notifications by role, profile update, sales staff comparison/conversion
     Route::get('/app/notifications', [AppScreenController::class, 'getNotifications']);

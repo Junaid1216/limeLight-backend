@@ -13,4 +13,18 @@ class TrainingVideo extends Model
     protected $casts = [
     'roles' => 'array',
 ];
+
+    public function publicVideoUrl(): ?string
+    {
+        $url = trim((string) $this->video_url);
+        if ($url === '') {
+            return null;
+        }
+
+        if (preg_match('#^https?://#i', $url)) {
+            return $url;
+        }
+
+        return asset($url);
+    }
 }

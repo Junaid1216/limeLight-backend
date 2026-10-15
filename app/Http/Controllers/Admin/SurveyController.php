@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Helpers\NotificationHelper;
 use App\Http\Controllers\Controller;
 use App\Models\Survey;
 use App\Models\SurveyOption;
@@ -29,7 +30,10 @@ class SurveyController extends Controller
             'status' => 'nullable|in:active,inactive',
         ]);
 
-        DB::transaction(function () use ($request) {
+        $isNew = empty($request->id);
+        $survey = null;
+
+        DB::transaction(function () use ($request, &$survey) {
             $survey = Survey::updateOrCreate(
                 ['id' => $request->id],
                 [
@@ -73,6 +77,22 @@ class SurveyController extends Controller
                 }
             }
         });
+
+        if ($isNew && $survey) {
+            $title = trim((string) ($survey->title ?: 'New survey'));
+            $body = trim((string) ($survey->question ?: $title));
+
+            NotificationHelper::sendToRoles(
+                (array) ($survey->roles ?? []),
+                $title,
+                $body !== '' ? $body : $title,
+                [
+                    'type' => 'survey',
+                    'source' => 'survey',
+                    'survey_id' => (string) $survey->id,
+                ]
+            );
+        }
 
         return back()->with('success', 'Survey Saved Successfully');
     }

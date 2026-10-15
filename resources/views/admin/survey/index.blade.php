@@ -9,7 +9,9 @@
             <div class="row">
                 <div class="col-12">
 
-                    {{-- Add / Update Training Video --}}
+                    {{-- Add / Update Survey --}}
+                    @if (Auth::guard('admin')->check() ||
+                            ($sideMenuPermissions->has('Surveys') && ($sideMenuPermissions['Surveys']->contains('create') || $sideMenuPermissions['Surveys']->contains('edit'))))
                     <div class="card">
 
                         <div class="card-header">
@@ -99,6 +101,7 @@
                         </form>
 
                     </div>
+                    @endif
 
                     {{-- Videos Listing --}}
                     <div class="card">

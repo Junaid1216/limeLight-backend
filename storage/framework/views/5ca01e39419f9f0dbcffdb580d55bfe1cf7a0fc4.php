@@ -1,5 +1,5 @@
 
-<?php $__env->startSection('title', 'Sales Staff'); ?>
+<?php $__env->startSection('title', 'Designations'); ?>
 
 <?php $__env->startSection('content'); ?>
     <div class="main-content" style="min-height: 562px;">
@@ -9,49 +9,31 @@
                     <div class="col-12">
                         <div class="card">
                             <div class="card-header">
-                                <h4>Sales Staff<small class="font-weight-bold text-danger"> (The default password for all sale staff is 12345678, automatically generated when a new sale staff member is created.)</small></h4>
+                                <h4>Designations</h4>
                             </div>
                             <div class="card-body table-striped table-bordered table-responsive">
 								 <?php if(Auth::guard('admin')->check() ||
-                                        ($sideMenuPermissions->has('Sale Staff') && $sideMenuPermissions['Sale Staff']->contains('create'))): ?>
-                                    <a class="btn btn-primary mb-3" href="<?php echo e(route('sale.staff.create')); ?>">Create</a>
+                                        ($sideMenuPermissions->has('Designations') && $sideMenuPermissions['Designations']->contains('create'))): ?>
+                                    <a class="btn btn-primary mb-3" href="<?php echo e(route('designation.create')); ?>">Create</a>
                                 <?php endif; ?>
                                 <table class="table" id="table_id_events">
                                     <thead>
                                         <tr>
                                             <th>Sr.</th>
-                                            <th>Employee ID</th>
                                             <th>Name</th>
-                                            <th>Email</th>
-                                            <th>Branch</th>
-                                            <th>Designation</th>
-                                            <th>Image</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <?php $__currentLoopData = $salestaff; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $salestaffmember): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                        <?php $__currentLoopData = $designations; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $designation): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                                             <tr>
                                                 <td><?php echo e($loop->iteration); ?></td>
-                                                <td><?php echo e($salestaffmember->employee_id ?? '-'); ?></td>
-                                                <td><?php echo e($salestaffmember->name ?? '-'); ?></td>
-                                                <td><?php echo e($salestaffmember->email ?? '-'); ?></td>
-                                                <td><?php echo e($salestaffmember->branch->name ?? '-'); ?></td>
-                                                <td><?php echo e($salestaffmember->designation->name ?? '-'); ?></td>
-                                                <td>
-                                                    <?php if($salestaffmember->image && file_exists($salestaffmember->image)): ?>
-                                                        <img src="<?php echo e(asset($salestaffmember->image)); ?>" width="50"
-                                                            height="50" alt="Image">
-                                                    <?php else: ?>
-                                                        <img src="<?php echo e(asset('public/admin/assets/images/avator.png')); ?>"
-                                                            width="50" height="50" alt="Default Image">
-                                                    <?php endif; ?>
-                                                </td>
+                                                <td><?php echo e($designation->name ?? '-'); ?></td>
                                                 <td style="vertical-align: middle;">
                                                     <div class="d-flex align-items-center" style="gap: 6px;">
                                                         <?php if(Auth::guard('admin')->check() ||
-                                                                ($sideMenuPermissions->has('Sale Staff') && $sideMenuPermissions['Sale Staff']->contains('edit'))): ?>
-                                                            <a href="<?php echo e(route('sale.staff.edit', $salestaffmember->id)); ?>"
+                                                                ($sideMenuPermissions->has('Designations') && $sideMenuPermissions['Designations']->contains('edit'))): ?>
+                                                            <a href="<?php echo e(route('designation.edit', $designation->id)); ?>"
                                                                 class="btn btn-primary p-2"
                                                                 style="background-color: #609b90;">
                                                                 <i class="fa fa-edit"></i>
@@ -59,9 +41,9 @@
                                                         <?php endif; ?>
 
                                                         <?php if(Auth::guard('admin')->check() ||
-                                                                ($sideMenuPermissions->has('Sale Staff') && $sideMenuPermissions['Sale Staff']->contains('delete'))): ?>
-                                                            <form id="delete-form-<?php echo e($salestaffmember->id); ?>"
-                                                                action="<?php echo e(route('sale.staff.delete', $salestaffmember->id)); ?>"
+                                                                ($sideMenuPermissions->has('Designations') && $sideMenuPermissions['Designations']->contains('delete'))): ?>
+                                                            <form id="delete-form-<?php echo e($designation->id); ?>"
+                                                                action="<?php echo e(route('designation.delete', $designation->id)); ?>"
                                                                 method="POST">
                                                                 <?php echo csrf_field(); ?>
                                                                 <?php echo method_field('DELETE'); ?>
@@ -69,7 +51,7 @@
 
                                                             <button class="show_confirm btn p-2"
                                                                 style="background-color: #609b90;"
-                                                                data-form="delete-form-<?php echo e($salestaffmember->id); ?>" type="button">
+                                                                data-form="delete-form-<?php echo e($designation->id); ?>" type="button">
                                                                 <i class="fa fa-trash"></i>
                                                             </button>
                                                         <?php endif; ?>
@@ -114,7 +96,7 @@
 
                 Swal.fire({
                     title: 'Are you sure you want to delete this record?',
-                    text: "If you delete this Sales Staff record, it will be gone forever.",
+                    text: "If you delete this Designation record, it will be gone forever.",
                     icon: 'warning',
                     showCancelButton: true,
                     confirmButtonColor: '#3085d6',
@@ -156,4 +138,4 @@
     <?php endif; ?>
 <?php $__env->stopSection(); ?>
 
-<?php echo $__env->make('admin.layout.app', \Illuminate\Support\Arr::except(get_defined_vars(), ['__data', '__path']))->render(); ?><?php /**PATH C:\xampp\htdocs\limelight-sales-perfomance\resources\views/salestaff/index.blade.php ENDPATH**/ ?>
+<?php echo $__env->make('admin.layout.app', \Illuminate\Support\Arr::except(get_defined_vars(), ['__data', '__path']))->render(); ?><?php /**PATH C:\xampp\htdocs\limelight-sales-perfomance\resources\views/admin/designation/index.blade.php ENDPATH**/ ?>

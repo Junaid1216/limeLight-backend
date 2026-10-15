@@ -10,6 +10,8 @@
                 <div class="col-12">
 
                    {{-- Add / Update Training Module --}}
+@if (Auth::guard('admin')->check() ||
+        ($sideMenuPermissions->has('Training Modules') && ($sideMenuPermissions['Training Modules']->contains('create') || $sideMenuPermissions['Training Modules']->contains('edit'))))
 <div class="card">
 
     <div class="card-header">
@@ -23,6 +25,7 @@
         @csrf
 
         <input type="hidden" name="id" id="video_id">
+        <input type="hidden" name="display_category" id="display_category_hidden" value="{{ old('display_category', old('category')) }}">
 
         <div class="card-body pb-1">
 
@@ -42,9 +45,9 @@
 
                             <option value="">Select Training Type</option>
 
-                            <option value="customer">Customer</option>
-                            <option value="product">Product</option>
-                            <option value="display">Display</option>
+                            <option value="customer" {{ old('training_type') === 'customer' ? 'selected' : '' }}>Customer</option>
+                            <option value="product" {{ old('training_type') === 'product' ? 'selected' : '' }}>Product</option>
+                            <option value="display" {{ old('training_type') === 'display' ? 'selected' : '' }}>Display</option>
 
                         </select>
                     </div>
@@ -58,12 +61,12 @@
 
                         <select name="category"
                                 id="category"
-                                class="form-control"
-                                required>
+                                class="form-control">
 
                             <option value="">Select Category</option>
                             @foreach(($displayCategories ?? []) as $displayCategory)
-                                <option value="{{ $displayCategory->slug }}">
+                                <option value="{{ $displayCategory->slug ?: $displayCategory->id }}"
+                                    {{ (string) old('category') === (string) ($displayCategory->slug ?: $displayCategory->id) ? 'selected' : '' }}>
                                     {{ $displayCategory->name }}
                                 </option>
                             @endforeach
@@ -324,6 +327,22 @@
                     </div>
                 </div>
 
+                {{-- Voice recording (display) --}}
+                <div class="col-md-6" id="audio_record_field">
+                    <div class="form-group">
+                        <label>Record voice</label>
+                        <div class="d-flex align-items-center" style="gap: 8px; flex-wrap: wrap;">
+                            <button type="button" class="btn btn-primary btn-sm" id="start_recording">Start recording</button>
+                            <button type="button" class="btn btn-danger btn-sm" id="stop_recording" disabled>Stop</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="discard_recording" disabled>Discard</button>
+                            <span id="recording_status" class="text-muted"></span>
+                        </div>
+                        <audio id="recording_preview" controls style="display:none; width:100%; margin-top:8px;"></audio>
+                        <input type="file" name="audio_recording" id="audio_recording" class="d-none" accept="audio/*">
+                        <small class="text-muted">If you record and also upload a file, the recording is saved.</small>
+                    </div>
+                </div>
+
 
                 {{-- Video URL --}}
                <div class="col-md-6" id="video_url_field">
@@ -335,6 +354,19 @@
                             id="video_url"
                             class="form-control"
                             placeholder="Enter Video URL">
+                    </div>
+                </div>
+
+                {{-- Video file (customer) --}}
+                <div class="col-md-6" id="video_file_field">
+                    <div class="form-group">
+                        <label>Upload video</label>
+                        <input type="file"
+                            name="video"
+                            id="video"
+                            class="form-control"
+                            accept="video/*">
+                        <small class="text-muted">MP4, MOV, AVI or WEBM. Max 50MB. Uploaded file is used instead of the URL if both are provided.</small>
                     </div>
                 </div>
 
@@ -368,6 +400,7 @@
     </form>
 
 </div>
+@endif
 
                     {{-- Videos Listing --}}
                     <div class="card">
@@ -411,8 +444,8 @@
                                         </td>
                                                 <td>{{ $video->title ?? 'N/A' }}</td>
                                                 <td>
-                                                    @if($video->video_url)
-                                                        <a href="{{ $video->video_url }}" target="_blank" class="btn btn-primary btn-sm">View</a>
+                                                    @if($video->publicVideoUrl())
+                                                        <a href="{{ $video->publicVideoUrl() }}" target="_blank" class="btn btn-primary btn-sm">View</a>
                                             @else
                                             N/A
                                             @endif
@@ -519,7 +552,13 @@
                                                 <td>
                                                     {{ collect($video->roles)->map(fn($role) => ucwords(str_replace('_',' ',$role)))->implode(', ') }}
                                         </td>
-                                                <td>{{ $video->category ? ucfirst($video->category) : 'N/A' }}</td>
+                                                <td>
+                                                    @php
+                                                        $displayCategoryName = optional(($displayCategories ?? collect())->firstWhere('slug', $video->Category))->name
+                                                            ?? optional(($displayCategories ?? collect())->firstWhere('id', (int) $video->Category))->name;
+                                                    @endphp
+                                                    {{ $displayCategoryName ?: ($video->Category ? ucfirst(str_replace('-', ' ', $video->Category)) : 'N/A') }}
+                                                </td>
                                                 <td>{{ $video->title ?? 'N/A' }}</td>
                                                 <td>{{ $video->description ?? 'N/A' }}</td>
                                         <td>
@@ -592,7 +631,9 @@ $(document).ready(function () {
         // Hide all conditional fields first
         $('#image_field').hide();
         $('#audio_field').hide();
+        $('#audio_record_field').hide();
         $('#video_url_field').hide();
+        $('#video_file_field').hide();
         $('#title_field').hide();
         $('#description_field').hide();
         $('#category_field').hide();
@@ -614,6 +655,7 @@ $(document).ready(function () {
             $('#title_field').show();
             $('#description_field').show();
             $('#video_url_field').show();
+            $('#video_file_field').show();
 
             $('#title').prop('required', true);
             $('#description').prop('required', true);
@@ -632,11 +674,13 @@ $(document).ready(function () {
 
             $('#image_field').show();
             $('#audio_field').show();
+            $('#audio_record_field').hide();
 
             // Title, Description, Video URL and Category hidden
             $('#title_field').hide();
             $('#description_field').hide();
             $('#video_url_field').hide();
+            $('#video_file_field').hide();
             $('#category_field').hide();
 
         }
@@ -651,19 +695,27 @@ $(document).ready(function () {
 
             $('#image_field').show();
             $('#audio_field').show();
+            $('#audio_record_field').show();
 
             $('#title_field').show();
             $('#description_field').show();
             $('#category_field').show();
+            $('#category').prop('disabled', false).prop('required', true);
 
             // Video URL hidden
             $('#video_url_field').hide();
+            $('#video_file_field').hide();
 
             $('#title').prop('required', true);
             $('#description').prop('required', true);
             $('#category').prop('required', true);
+            syncDisplayCategory();
 
         }
+    }
+
+    function syncDisplayCategory() {
+        $('#display_category_hidden').val($('#category').val() || '');
     }
 
 
@@ -690,12 +742,24 @@ $(document).ready(function () {
 
         }
 
+        if (type !== 'display' && typeof window.discardVoiceRecording === 'function') {
+            window.discardVoiceRecording();
+        }
+
         toggleTrainingFields();
     });
 
 
+    $('#category').on('change', syncDisplayCategory);
+
+    $('form').on('submit', function () {
+        $('#category').prop('disabled', false);
+        syncDisplayCategory();
+    });
+
     // Run when page loads
     toggleTrainingFields();
+    syncDisplayCategory();
 
 
     /*
@@ -723,6 +787,7 @@ $(document).ready(function () {
         $('#category').val(
             $(this).data('category') || ''
         );
+        syncDisplayCategory();
 
         // Customer / Display fields
         $('#title').val(
@@ -732,6 +797,10 @@ $(document).ready(function () {
         $('#video_url').val(
             $(this).data('video') || ''
         );
+        $('#video').val('');
+        if (typeof window.discardVoiceRecording === 'function') {
+            window.discardVoiceRecording();
+        }
 
         $('#description').val(
             $(this).data('description') || ''
@@ -901,5 +970,6 @@ $(document).ready(function () {
 
 });
 </script>
+<script src="{{ asset('public/admin/assets/js/page/training-voice-recorder.js') }}"></script>
 
 @endsection

@@ -1,5 +1,5 @@
 
-<?php $__env->startSection('title', 'Regions'); ?>
+<?php $__env->startSection('title', 'Cities'); ?>
 
 <?php $__env->startSection('content'); ?>
     <div class="main-content" style="min-height: 562px;">
@@ -9,33 +9,31 @@
                     <div class="col-12">
                         <div class="card">
                             <div class="card-header">
-                                <h4>Regions</h4>
+                                <h4>Cities</h4>
                             </div>
                             <div class="card-body table-striped table-bordered table-responsive">
 								 <?php if(Auth::guard('admin')->check() ||
-                                        ($sideMenuPermissions->has('Regions') && $sideMenuPermissions['Regions']->contains('create'))): ?>
-                                    <a class="btn btn-primary mb-3" href="<?php echo e(route('region.create')); ?>">Create</a>
+                                        ($sideMenuPermissions->has('Cities') && $sideMenuPermissions['Cities']->contains('create'))): ?>
+                                    <a class="btn btn-primary mb-3" href="<?php echo e(route('city.create')); ?>">Create</a>
                                 <?php endif; ?>
                                 <table class="table" id="table_id_events">
                                     <thead>
                                         <tr>
                                             <th>Sr.</th>
                                             <th>Name</th>
-                                            <th>Code</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <?php $__currentLoopData = $regions; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $region): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                        <?php $__currentLoopData = $cities; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $city): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                                             <tr>
                                                 <td><?php echo e($loop->iteration); ?></td>
-                                                <td><?php echo e($region->name ?? '-'); ?></td>
-                                                <td><?php echo e($region->code ?? '-'); ?></td>
+                                                <td><?php echo e($city->name ?? '-'); ?></td>
                                                 <td style="vertical-align: middle;">
                                                     <div class="d-flex align-items-center" style="gap: 6px;">
                                                         <?php if(Auth::guard('admin')->check() ||
-                                                                ($sideMenuPermissions->has('Regions') && $sideMenuPermissions['Regions']->contains('edit'))): ?>
-                                                            <a href="<?php echo e(route('region.edit', $region->id)); ?>"
+                                                                ($sideMenuPermissions->has('Cities') && $sideMenuPermissions['Cities']->contains('edit'))): ?>
+                                                            <a href="<?php echo e(route('city.edit', $city->id)); ?>"
                                                                 class="btn btn-primary p-2"
                                                                 style="background-color: #609b90;">
                                                                 <i class="fa fa-edit"></i>
@@ -43,9 +41,9 @@
                                                         <?php endif; ?>
 
                                                         <?php if(Auth::guard('admin')->check() ||
-                                                                ($sideMenuPermissions->has('Regions') && $sideMenuPermissions['Regions']->contains('delete'))): ?>
-                                                            <form id="delete-form-<?php echo e($region->id); ?>"
-                                                                action="<?php echo e(route('region.delete', $region->id)); ?>"
+                                                                ($sideMenuPermissions->has('Cities') && $sideMenuPermissions['Cities']->contains('delete'))): ?>
+                                                            <form id="delete-form-<?php echo e($city->id); ?>"
+                                                                action="<?php echo e(route('city.delete', $city->id)); ?>"
                                                                 method="POST">
                                                                 <?php echo csrf_field(); ?>
                                                                 <?php echo method_field('DELETE'); ?>
@@ -53,7 +51,7 @@
 
                                                             <button class="show_confirm btn p-2"
                                                                 style="background-color: #609b90;"
-                                                                data-form="delete-form-<?php echo e($region->id); ?>" type="button">
+                                                                data-form="delete-form-<?php echo e($city->id); ?>" type="button">
                                                                 <i class="fa fa-trash"></i>
                                                             </button>
                                                         <?php endif; ?>
@@ -79,8 +77,18 @@
         $(document).ready(function() {
             $('#table_id_events').DataTable();
 
-            //deleting alert
+        });
+    </script>
+     <script type="text/javascript">
+        $(document).ready(function() {
 
+            // ✅ DataTable initialize
+            if ($.fn.DataTable.isDataTable('#table_id_events')) {
+                $('#table_id_events').DataTable().destroy();
+            }
+            $('#table_id_events').DataTable();
+
+            // ✅ Delete alert confirmation
             $(document).on('click', '.show_confirm', function(event) {
                 event.preventDefault();
                 var formId = $(this).data("form");
@@ -88,7 +96,7 @@
 
                 Swal.fire({
                     title: 'Are you sure you want to delete this record?',
-                    text: "If you delete this Region record, it will be gone forever.",
+                    text: "If you delete this City record, it will be gone forever.",
                     icon: 'warning',
                     showCancelButton: true,
                     confirmButtonColor: '#3085d6',
@@ -120,9 +128,14 @@
                     }
                 });
             });
-
         });
     </script>
+
+     <?php if(session('message')): ?>
+        <script>
+            toastr.success('<?php echo e(session('message')); ?>');
+        </script>
+    <?php endif; ?>
 <?php $__env->stopSection(); ?>
 
-<?php echo $__env->make('admin.layout.app', \Illuminate\Support\Arr::except(get_defined_vars(), ['__data', '__path']))->render(); ?><?php /**PATH C:\xampp\htdocs\limelight-sales-perfomance\resources\views/admin/region/index.blade.php ENDPATH**/ ?>
+<?php echo $__env->make('admin.layout.app', \Illuminate\Support\Arr::except(get_defined_vars(), ['__data', '__path']))->render(); ?><?php /**PATH C:\xampp\htdocs\limelight-sales-perfomance\resources\views/admin/city/index.blade.php ENDPATH**/ ?>

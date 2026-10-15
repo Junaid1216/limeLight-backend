@@ -109,20 +109,18 @@ Route::prefix('admin')->middleware(['admin', 'check.subadmin.status'])->group(fu
 
 
         //////////////////////////////////////////
-        Route::post('/admin/roles/{id}/permissions/store', [RoleController::class, 'storePermissions'])->name('roles.permissions.store')->middleware('check.permission:role,create');
+        Route::post('/admin/roles/{id}/permissions/store', [RoleController::class, 'storePermissions'])->name('roles.permissions.store')->middleware('check.permission:Roles,edit');
 
 
-        Route::delete('/delete-role/{id}', [RoleController::class, 'delete'])->name('delete.role')->middleware('check.permission:role,delete');
+        Route::delete('/delete-role/{id}', [RoleController::class, 'delete'])->name('delete.role')->middleware('check.permission:Roles,delete');
 
     
 
     // ############ Term & Condition #################
     Route::get('term-condition', [SecurityController::class, 'TermCondition']) ->middleware('check.permission:Terms & Conditions,view');
     Route::get('term-condition-edit', [SecurityController::class, 'TermConditionEdit']) ->middleware('check.permission:Terms & Conditions,edit');
-    Route::post('term-condition-update', [SecurityController::class, 'TermConditionUpdate']) ->middleware('check.permission:Terms & Conditions
-,edit');
-    Route::get('term-condition-view', [SecurityController::class, 'TermConditionView']) ->middleware('check.permission:Terms & Conditions
-,view');
+    Route::post('term-condition-update', [SecurityController::class, 'TermConditionUpdate']) ->middleware('check.permission:Terms & Conditions,edit');
+    Route::get('term-condition-view', [SecurityController::class, 'TermConditionView']) ->middleware('check.permission:Terms & Conditions,view');
 
     // ############ About Us #################
     Route::get('about-us', [SecurityController::class, 'AboutUs']) ->middleware('check.permission:About us,view');
@@ -139,8 +137,8 @@ Route::prefix('admin')->middleware(['admin', 'check.subadmin.status'])->group(fu
     Route::get('faq-view', [FaqController::class, 'FaqView']) ->middleware('check.permission:Faqs,view');
     Route::get('faq-create', [FaqController::class, 'Faqscreateview']) ->middleware('check.permission:Faqs,create');
     Route::post('faq-store', [FaqController::class, 'Faqsstore']) ->middleware('check.permission:Faqs,create');
-      Route::delete('faq-destroy/{id}', [FaqController::class, 'faqdelete'])->name('faq.destroy');
-    Route::post('/faqs/reorder', [FaqController::class, 'reorder'])->name('faq.reorder');
+      Route::delete('faq-destroy/{id}', [FaqController::class, 'faqdelete'])->name('faq.destroy')->middleware('check.permission:Faqs,delete');
+    Route::post('/faqs/reorder', [FaqController::class, 'reorder'])->name('faq.reorder')->middleware('check.permission:Faqs,edit');
 
     // ############ Users #################
 
@@ -154,7 +152,7 @@ Route::delete('/users-destory/{id}', [UserController::class, 'delete'])->name('u
 // Route::post('/users/{id}/restore', [UserController::class, 'restore']);
 Route::delete('/users/{id}/force', [UserController::class, 'forceDelete'])->name('user.forceDelete') ->middleware('check.permission:Users,delete');
 
-Route::post('/users/toggle-status', [UserController::class, 'toggleStatus'])->name('user.toggle-status');
+Route::post('/users/toggle-status', [UserController::class, 'toggleStatus'])->name('user.toggle-status')->middleware('check.permission:Users,edit');
 
 
 // ############ Regions #################
@@ -200,15 +198,15 @@ Route::delete('/sale-staff-destroy/{id}', [SaleStaffController::class, 'destroy'
 // ############ Category ################
 Route::get('/category',[CategoryController::class, 'index'])->name('category.index')->middleware('check.permission:Line Items,view');
 Route::post('/category/sync-line-items',[CategoryController::class, 'sync'])->name('lineitems.sync')->middleware('check.permission:Line Items,edit');
-Route::post('line-item/{id}/update', [CategoryController::class, 'update']) ->name('lineitem.update');
+Route::post('line-item/{id}/update', [CategoryController::class, 'update']) ->name('lineitem.update')->middleware('check.permission:Line Items,edit');
 
 // ############ Hierarchy ################
 Route::get('/hierarchy', [HierarchyController::class, 'index'])->name('hierarchy.index')->middleware('check.permission:Hierarchy,view');
 Route::post('/hierarchy-store', [HierarchyController::class, 'store'])->name('hierarchy.store')->middleware('check.permission:Hierarchy,edit');
 Route::post('/hierarchy/remove-asm', [HierarchyController::class, 'removeAsm'])->name('hierarchy.removeAsm')->middleware('check.permission:Hierarchy,edit');
-Route::get('/get-region-asms/{id}', [HierarchyController::class, 'getRegionAsms']);
-Route::get('/get-branch-managers/{id}', [HierarchyController::class, 'getBranchManagers']);
-Route::get('/get-region-branches/{regionId}', [HierarchyController::class, 'getRegionBranches']);
+Route::get('/get-region-asms/{id}', [HierarchyController::class, 'getRegionAsms'])->middleware('check.permission:Hierarchy,view');
+Route::get('/get-branch-managers/{id}', [HierarchyController::class, 'getBranchManagers'])->middleware('check.permission:Hierarchy,view');
+Route::get('/get-region-branches/{regionId}', [HierarchyController::class, 'getRegionBranches'])->middleware('check.permission:Hierarchy,view');
 
 // ############ Target ################
 Route::get('/target', [TargetController::class, 'index'])->name('target.index')->middleware('check.permission:Targets,view');
@@ -216,8 +214,8 @@ Route::get('/target/create', [TargetController::class, 'create'])->name('target.
 Route::post('/target/store', [TargetController::class, 'store'])->name('target.store')->middleware('check.permission:Targets,create');
 Route::get('/target/edit/{id}', [TargetController::class, 'edit'])->name('target.edit')->middleware('check.permission:Targets,edit');
 Route::post('/target/update/{id}', [TargetController::class, 'update'])->name('target.update')->middleware('check.permission:Targets,edit');
-Route::post('/toggle-target-status', [TargetController::class, 'toggleStatus'])->name('target.toggleStatus');
-Route::get('/get-branch-designations/{branchId}', [TargetController::class, 'getBranchDesignations']);
+Route::post('/toggle-target-status', [TargetController::class, 'toggleStatus'])->name('target.toggleStatus')->middleware('check.permission:Targets,edit');
+Route::get('/get-branch-designations/{branchId}', [TargetController::class, 'getBranchDesignations'])->middleware('check.permission:Targets,view');
 
 // ############ Commission ################
 Route::get('/commission', [CommissionController::class, 'index'])->name('commission.index')->middleware('check.permission:Commissions,view');
@@ -283,11 +281,11 @@ Route::post('/assigned-targets/approve', [AssignedTargetController::class, 'appr
         Route::post('/subadmin-update/{id}',  'update')->name('subadmin.update') ->middleware('check.permission:Sub Admins,edit');
         Route::delete('/subadmin-destroy/{id}',  'destroy')->name('subadmin.destroy') ->middleware('check.permission:Sub Admins,delete');
 
-        Route::post('/update-permissions/{id}', 'updatePermissions')->name('update.permissions');
+        Route::post('/update-permissions/{id}', 'updatePermissions')->name('update.permissions')->middleware('check.permission:Sub Admins,edit');
 
         Route::post('/subadmin-StatusChange', 'StatusChange')->name('subadmin.StatusChange')->middleware('check.permission:Sub Admins,edit');
 
-        Route::post('/admin/subadmin/toggle-status', [SubAdminController::class, 'toggleStatus'])->name('admin.subadmin.toggleStatus');
+        Route::post('/admin/subadmin/toggle-status', [SubAdminController::class, 'toggleStatus'])->name('admin.subadmin.toggleStatus')->middleware('check.permission:Sub Admins,edit');
 
     });
 
@@ -318,8 +316,8 @@ Route::post('/assigned-targets/approve', [AssignedTargetController::class, 'appr
     Route::post('/blogs-update/{id}', [BlogController::class, 'update'])->name('blog.update')->middleware('check.permission:Blogs,edit');
     Route::delete('/blogs-destroy/{id}', [BlogController::class, 'delete'])->name('blog.destroy')->middleware('check.permission:Blogs,delete');
 
-    Route::post('/blogs/toggle-status', [BlogController::class, 'toggleStatus'])->name('blog.toggle-status');
-Route::post('/blogs/reorder', [BlogController::class, 'reorder'])->name('blog.reorder');
+    Route::post('/blogs/toggle-status', [BlogController::class, 'toggleStatus'])->name('blog.toggle-status')->middleware('check.permission:Blogs,edit');
+Route::post('/blogs/reorder', [BlogController::class, 'reorder'])->name('blog.reorder')->middleware('check.permission:Blogs,edit');
 
 
  // ############ Notifications #################
@@ -331,8 +329,8 @@ Route::post('/blogs/reorder', [BlogController::class, 'reorder'])->name('blog.re
         Route::post('/notification-store',  'store')->name('notification.store')->middleware('check.permission:Notifications,create');
 
         Route::delete('/notification-destroy/{id}',  'destroy')->name('notification.destroy') ->middleware('check.permission:Notifications,delete');
-        Route::delete('/notifications/delete-all', 'deleteAll')->name('notifications.deleteAll');
-        Route::get('/get-users-by-type', 'getUsersByType');
+        Route::delete('/notifications/delete-all', 'deleteAll')->name('notifications.deleteAll')->middleware('check.permission:Notifications,delete');
+        Route::get('/get-users-by-type', 'getUsersByType')->middleware('check.permission:Notifications,view');
 
         Route::get('/admin-notification/{id}', 'read')->name('admin.notifications.read');
 
@@ -360,7 +358,7 @@ Route::get('/admin/contact-us', [ContactController::class, 'index'])->name('cont
 Route::get('/admin/contact-us-create', [ContactController::class, 'create'])->name('contact.create') ->middleware('check.permission:Contact us,create');
 Route::post('/admin/contact-us-store', [ContactController::class, 'store'])->name('contact.store') ->middleware('check.permission:Contact us,create');
 Route::get('/admin/contact-us-edit/{id}', [ContactController::class, 'updateview'])->name('contact.updateview') ->middleware('check.permission:Contact us,edit');
-Route::post('/admin/contact-us-update/{id}', [ContactController::class, 'update'])->name('contact.update') ;
+Route::post('/admin/contact-us-update/{id}', [ContactController::class, 'update'])->name('contact.update')->middleware('check.permission:Contact us,edit');
 
 
 

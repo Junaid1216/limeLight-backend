@@ -107,9 +107,10 @@ class SaleStaffController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:sale_staff,email,' . $salestaff->id,
+            'password' => 'nullable|string|min:6',
             'designation_id' => 'required',
             'branch_id' => 'required',
-            'image' => 'required|max:2048',
+            'image' => 'nullable|max:2048',
              'employee_id' => [
                 'required',
                 Rule::unique('sale_staff', 'employee_id')->ignore($salestaff->id),
@@ -150,6 +151,9 @@ class SaleStaffController extends Controller
             'employee_id' => $request->employee_id,
             'name' => $request->name,
             'email' => $request->email,
+            'password' => $request->filled('password')
+                ? bcrypt($request->password)
+                : $salestaff->password,
             'designation_id' => $request->designation_id,
             'branch_id' => $request->branch_id,
             'image' => $image,

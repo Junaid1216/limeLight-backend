@@ -71,7 +71,7 @@ class TrainingVideoController extends Controller
                     'id' => $video->id,
                     'title' => $video->title,
                     'description' => $video->description,
-                    'video_url' => $video->video_url,
+                    'video_url' => $video->publicVideoUrl(),
                     'training_type' => $video->training_type,
                     'status' => $userStatus,
                     'completed_at' => $completion && $userStatus === 'completed'

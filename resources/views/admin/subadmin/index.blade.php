@@ -133,7 +133,7 @@
                                 Swal.fire({
                                     icon: 'success',
                                     title: 'Success!',
-                                    text: 'Recored deleted successfully.',
+                                    text: 'Record deleted successfully.',
                                     showConfirmButton: false,
                                     timer: 2000
                                 }).then(() => location.reload());

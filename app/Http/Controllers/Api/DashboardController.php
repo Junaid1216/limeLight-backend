@@ -82,6 +82,25 @@ class DashboardController extends Controller
             }
         }
 
+        if ($targets->isEmpty() || array_sum($assigned) <= 0) {
+            return response()->json([
+                'status' => 200,
+                'message' => 'No target assigned',
+                'data' => [
+                    'month' => $month,
+                    'year' => $year,
+                    'target_vs_achievement' => [],
+                    'commission' => [
+                        'target' => 0,
+                        'sale' => 0,
+                        'commission' => 0,
+                        'achieved_percentage' => 0,
+                        'remaining_percentage' => 0,
+                    ],
+                ],
+            ]);
+        }
+
         /*
         |--------------------------------------------------------------------------
         | Sold Quantities (current month)

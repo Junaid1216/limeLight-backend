@@ -14,7 +14,7 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 class NotificationJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
- 
+
     /**
      * Create a new job instance.
      *
@@ -30,6 +30,7 @@ protected $data;
         $this->title = $title;
         $this->description = $description;
         $this->data = $data;
+        $this->onConnection('database');
     }
  
     /**

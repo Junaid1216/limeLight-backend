@@ -78,6 +78,8 @@
                                                 <td style="white-space: pre-wrap;">{{ $feedback->feedback }}</td>
                                                 <td>{{ $feedback->created_at ? $feedback->created_at->copy()->timezone('Asia/Karachi')->format('d M Y, h:i A') : '-' }}</td>
                                                 <td>
+                                                    @if (Auth::guard('admin')->check() ||
+                                                            ($sideMenuPermissions->has('Feedback') && $sideMenuPermissions['Feedback']->contains('delete')))
                                                     <form id="delete-form-{{ $feedback->id }}"
                                                         action="{{ route('feedback.destroy', $feedback->id) }}"
                                                         method="POST"
@@ -91,6 +93,9 @@
                                                             <i class="fa fa-trash"></i>
                                                         </button>
                                                     </form>
+                                                    @else
+                                                        -
+                                                    @endif
                                                 </td>
                                             </tr>
                                         @empty

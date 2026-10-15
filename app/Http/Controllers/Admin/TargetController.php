@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Helpers\NotificationHelper;
 use App\Http\Controllers\Controller;
 use App\Models\AssignedTarget;
 use App\Models\Branch;
@@ -80,6 +81,8 @@ class TargetController extends Controller
                 'branch_id' => $request->branch_id,
             ]);
         }
+
+        $this->notifyBranchManagersOfNewTarget($request);
 
         $count = count($payloads);
         return redirect()->route('target.index')->with(
@@ -273,4 +276,41 @@ public function toggleStatus(Request $request)
             : 'Target Deactivated Successfully'
     ]);
 }
+
+    private function notifyBranchManagersOfNewTarget(Request $request): void
+    {
+        $query = BranchManager::query()->where('branch_id', $request->branch_id);
+        $managers = $query->get();
+
+        if ($request->designation_id) {
+            $filtered = $managers->where('designation_id', (int) $request->designation_id)->values();
+            if ($filtered->isNotEmpty()) {
+                $managers = $filtered;
+            }
+        }
+
+        $users = $managers->map(function ($manager) {
+            return ['id' => (int) $manager->id, 'type' => 'manager'];
+        })->values()->all();
+
+        if (empty($users)) {
+            return;
+        }
+
+        $branch = Branch::find($request->branch_id);
+        $branchName = optional($branch)->name ?: 'your branch';
+
+        NotificationHelper::sendToUsers(
+            $users,
+            'New monthly target assigned',
+            $branchName . ' — ' . $request->month . ' ' . $request->year,
+            [
+                'type' => 'monthly_target',
+                'source' => 'admin_target',
+                'branch_id' => (string) $request->branch_id,
+                'month' => (string) $request->month,
+                'year' => (string) $request->year,
+            ]
+        );
+    }
 }

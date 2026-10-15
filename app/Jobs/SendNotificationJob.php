@@ -24,6 +24,7 @@ class SendNotificationJob implements ShouldQueue
     {
         $this->data = $data;
         $this->userIds = $userIds;
+        $this->onConnection('database');
     }
 
     public function handle(): void

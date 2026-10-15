@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Helpers\NotificationHelper;
 use App\Http\Controllers\Controller;
 use App\Models\AssignedTarget;
 use App\Models\Branch;
@@ -121,13 +122,47 @@ class AssignedTargetController extends Controller
             'year' => 'required',
         ]);
 
-        $updated = AssignedTarget::where('branch_id', $request->branch_id)
+        $query = AssignedTarget::where('branch_id', $request->branch_id)
             ->where('branch_manager_id', $request->branch_manager_id)
             ->where('month', $request->month)
-            ->where('year', $request->year)
-            ->update([
-                'status' => 'approved',
-            ]);
+            ->where('year', $request->year);
+
+        $staffIds = (clone $query)->pluck('user_id')->unique()->filter()->values();
+
+        $updated = $query->update([
+            'status' => 'approved',
+        ]);
+
+        $payload = [
+            'type' => 'assigned_target',
+            'source' => 'assigned_target',
+            'month' => (string) $request->month,
+            'year' => (string) $request->year,
+            'branch_id' => (string) $request->branch_id,
+        ];
+
+        $managerId = (int) $request->branch_manager_id;
+        if ($managerId > 0) {
+            NotificationHelper::sendToUsers(
+                [['id' => $managerId, 'type' => 'manager']],
+                'Your target was approved',
+                'Your monthly target for ' . $request->month . ' ' . $request->year . ' has been approved.',
+                $payload
+            );
+        }
+
+        $staffUsers = $staffIds->map(function ($id) {
+            return ['id' => (int) $id, 'type' => 'staff'];
+        })->all();
+
+        if (!empty($staffUsers)) {
+            NotificationHelper::sendToUsers(
+                $staffUsers,
+                'You have been assigned a target',
+                'A monthly target for ' . $request->month . ' ' . $request->year . ' has been assigned to you.',
+                $payload
+            );
+        }
 
         if ($request->ajax()) {
             return response()->json([

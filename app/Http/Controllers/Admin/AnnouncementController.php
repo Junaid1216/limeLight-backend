@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Helpers\NotificationHelper;
 use App\Http\Controllers\Controller;
+use App\Jobs\SendFcmPushJob;
 use App\Models\AdminNotification;
 use App\Models\Announcement;
 use App\Models\AreaSaleManager;
@@ -11,7 +12,6 @@ use App\Models\BranchManager;
 use App\Models\SaleStaff;
 use App\Models\UserNotification;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 
 class AnnouncementController extends Controller
 {
@@ -52,6 +52,9 @@ class AnnouncementController extends Controller
         $notificationRows = AdminNotification::with('userNotifications')
             ->where(function ($q) {
                 $q->where('is_deleted', 0)->orWhereNull('is_deleted');
+            })
+            ->where(function ($q) {
+                $q->whereNull('source')->orWhere('source', 'admin_notification');
             })
             ->latest()
             ->get()
@@ -274,6 +277,7 @@ class AnnouncementController extends Controller
             'title' => $request->title,
             'description' => $request->description,
             'is_deleted' => 0,
+            'source' => 'admin_notification',
         ]);
 
         foreach ($users as $user) {
@@ -283,52 +287,22 @@ class AnnouncementController extends Controller
                 'user_type' => $user['type'],
                 'is_read' => 0,
             ]);
-
-            $this->sendPushToUser(
-                $user,
-                $request->title,
-                $request->description,
-                [
-                    'type' => 'notification',
-                    'user_type' => (string) $userType,
-                    'notification_id' => (string) $adminNotification->id,
-                    'source' => 'admin_notification',
-                ]
-            );
         }
+
+        SendFcmPushJob::dispatch(
+            $request->title,
+            $request->description,
+            [
+                'type' => 'notification',
+                'user_type' => (string) $userType,
+                'notification_id' => (string) $adminNotification->id,
+                'source' => 'admin_notification',
+            ],
+            [],
+            $users
+        )->onConnection('database');
 
         return redirect()->route('announcement.index')->with('success', 'Notification Sent Successfully');
-    }
-
-    private function sendPushToUser(array $user, string $title, string $description, array $data): void
-    {
-        $modelClass = $this->resolveModelClass($user['type'] ?? '');
-        if (!$modelClass) {
-            return;
-        }
-
-        $model = $modelClass::find($user['id'] ?? 0);
-        if (!$model) {
-            return;
-        }
-
-        $fcmToken = $model->fcm_token ?? $model->fcm ?? null;
-        if (empty($fcmToken)) {
-            Log::info('Announcement push skipped: no FCM token', [
-                'user_id' => $user['id'] ?? null,
-                'user_type' => $user['type'] ?? null,
-            ]);
-            return;
-        }
-
-        try {
-            NotificationHelper::sendFcmNotification($fcmToken, $title, $description, $data);
-        } catch (\Exception $e) {
-            Log::error('Announcement push FCM error: ' . $e->getMessage(), [
-                'user_id' => $user['id'] ?? null,
-                'user_type' => $user['type'] ?? null,
-            ]);
-        }
     }
 
     private function resolveModelClass(string $type): ?string

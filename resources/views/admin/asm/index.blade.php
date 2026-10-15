@@ -13,7 +13,7 @@
                             </div>
                             <div class="card-body table-striped table-bordered table-responsive">
 								 @if (Auth::guard('admin')->check() ||
-                                        ($sideMenuPermissions->has('Area Sale Manager') && $sideMenuPermissions['Area Sale Manager']->contains('create')))
+                                        ($sideMenuPermissions->has('Area Sale Managers') && $sideMenuPermissions['Area Sale Managers']->contains('create')))
                                     <a class="btn btn-primary mb-3" href="{{ route('asm.create') }}">Create</a>
                                 @endif
                                 <table class="table" id="table_id_events">
@@ -50,7 +50,7 @@
                                                 <td style="vertical-align: middle;">
                                                     <div class="d-flex align-items-center" style="gap: 6px;">
                                                         @if (Auth::guard('admin')->check() ||
-                                                                ($sideMenuPermissions->has('Area Sale Manager') && $sideMenuPermissions['Area Sale Manager']->contains('edit')))
+                                                                ($sideMenuPermissions->has('Area Sale Managers') && $sideMenuPermissions['Area Sale Managers']->contains('edit')))
                                                             <a href="{{ route('asm.edit', $asm->id) }}"
                                                                 class="btn btn-primary p-2"
                                                                 style="background-color: #609b90;">
@@ -59,7 +59,7 @@
                                                         @endif
 
                                                         @if (Auth::guard('admin')->check() ||
-                                                                ($sideMenuPermissions->has('Area Sale Manager') && $sideMenuPermissions['Area Sale Manager']->contains('delete')))
+                                                                ($sideMenuPermissions->has('Area Sale Managers') && $sideMenuPermissions['Area Sale Managers']->contains('delete')))
                                                             <form id="delete-form-{{ $asm->id }}"
                                                                 action="{{ route('asm.delete', $asm->id) }}"
                                                                 method="POST">

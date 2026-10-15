@@ -8,6 +8,8 @@
         <div class="section-body">
 
             {{-- Add Commission Card --}}
+            @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Commissions') && $sideMenuPermissions['Commissions']->contains('create')))
             <div class="card">
                 <div class="card-header">
                     <h4>Add Commission <small class="font-weight-bold text-danger"> Commission per Item/Sale = Entity Sale Price × (Admin-defined Commission % ÷ 100)</small></h4>
@@ -70,6 +72,7 @@
 
                 </form>
             </div>
+            @endif
 
             {{-- Commission Listing --}}
             <div class="card">

@@ -7,6 +7,8 @@
         <div class="section-body">
             <div class="row">
                 <div class="col-12">
+                    @if (Auth::guard('admin')->check() ||
+                            ($sideMenuPermissions->has('Announcements') && ($sideMenuPermissions['Announcements']->contains('create') || $sideMenuPermissions['Announcements']->contains('edit'))))
                     <div class="card">
                         <div class="card-header">
                             <h4>Announcements</h4>
@@ -85,6 +87,7 @@
                             </div>
                         </form>
                     </div>
+                    @endif
 
                     <div class="card">
                         <div class="card-header d-flex justify-content-between align-items-center">
@@ -145,7 +148,9 @@
                                             </td>
                                             <td>
                                                 <div class="d-flex align-items-center" style="gap:6px;">
-                                                    @if ($row['kind'] === 'announcement' && !empty($row['edit']))
+                                                    @if ($row['kind'] === 'announcement' && !empty($row['edit']) &&
+                                                        (Auth::guard('admin')->check() ||
+                                                            ($sideMenuPermissions->has('Announcements') && $sideMenuPermissions['Announcements']->contains('edit'))))
                                                         <button type="button"
                                                             class="btn btn-primary p-2 editAnnouncement"
                                                             style="background-color:#609b90;"
@@ -160,6 +165,8 @@
                                                         </button>
                                                     @endif
 
+                                                    @if (Auth::guard('admin')->check() ||
+                                                            ($sideMenuPermissions->has('Announcements') && $sideMenuPermissions['Announcements']->contains('delete')))
                                                     <form id="delete-form-{{ $row['kind'] }}-{{ $row['id'] }}"
                                                         action="{{ $row['delete_route'] }}"
                                                         method="POST">
@@ -173,6 +180,7 @@
                                                         type="button">
                                                         <i class="fa fa-trash"></i>
                                                     </button>
+                                                    @endif
                                                 </div>
                                             </td>
                                         </tr>

@@ -26,12 +26,14 @@ class RoleController extends Controller
 
 
         // ✅ 1. Get role_id of subadmin
-        $roleId = $user->role_id;
+        $roleId = optional($user->roles()->first())->id;
 
         // ✅ 2. Get all permissions assigned to this role
-        $permissions = UserRolePermission::with(['permission', 'sideMenue'])
-            ->where('role_id', $roleId)
-            ->get();
+        $permissions = $roleId
+            ? UserRolePermission::with(['permission', 'sideMenue'])
+                ->where('role_id', $roleId)
+                ->get()
+            : collect();
 
         // ✅ 3. Group permissions by side menu
         $sideMenuPermissions = $permissions->groupBy('sideMenue.name')->map(function ($items) {
@@ -108,29 +110,23 @@ public function permissions($id)
 
     public function storePermissions(Request $request, $roleId)
 {
-    // return $request->all();
-    // Step 1: Clear all old permissions for this role
     UserRolePermission::where('role_id', $roleId)->delete();
 
-    // Step 2: Loop through all selected permissions and save
     if ($request->has('permissions')) {
-       foreach ($request->permissions as $sideMenuId => $permissionNames) {
-    foreach ($permissionNames as $permissionName) {
-        $permission = Permission::where('name', $permissionName)->first();
-        // return $permission->id;
+        foreach ($request->permissions as $sideMenuId => $permissionNames) {
+            foreach ($permissionNames as $permissionName) {
+                $permission = Permission::where('name', $permissionName)->first();
 
-        if ($permission) {
-            UserRolePermission::create([
-                'role_id' => $request->role_id,
-                'side_menu_id' => $sideMenuId,
-                'permission_id' => $permission->id,
-            ]);
-
-            // dd($permission->id);
+                if ($permission) {
+                    UserRolePermission::create([
+                        'user_id' => null,
+                        'role_id' => $request->role_id,
+                        'side_menu_id' => $sideMenuId,
+                        'permission_id' => $permission->id,
+                    ]);
+                }
+            }
         }
-    }
-}
-
     }
 
     return redirect('/admin/roles')->with('success', 'Permissions Saved Successfully');
@@ -144,8 +140,13 @@ function hasPermission($menu, $permission)
         return true;
     }
 
-    $user = Auth::user();
-    $roleId = $user->role_id;
+    $user = Auth::guard('subadmin')->user() ?: Auth::user();
+    $roleId = ($user && method_exists($user, 'roles'))
+        ? optional($user->roles()->first())->id
+        : null;
+    if (!$roleId) {
+        return false;
+    }
 
     $permissions = \App\Models\UserRolePermission::with(['permission', 'sideMenue'])
         ->where('role_id', $roleId)

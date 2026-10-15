@@ -12,6 +12,7 @@ use App\Models\SaleItem;
 use App\Models\SaleStaff;
 use App\Models\TransactionSummary;
 use App\Services\LineItemSyncService;
+use App\Services\TargetAchievementNotifier;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Console\Command;
@@ -36,14 +37,14 @@ class SyncThirdPartyData extends Command
     /** Connect timeout: fail fast if host unreachable */
     private const SALES_CONNECT_TIMEOUT = 20;
 
-    /** Response timeout: large payloads can be slow */
-    private const SALES_TIMEOUT = 300;
-
     /** Retry attempts for transient failures (timeouts / 5xx) */
-    private const SALES_MAX_ATTEMPTS = 3;
+    private const SALES_MAX_ATTEMPTS = 5;
 
     /** Base delay (ms) between retries; doubles each attempt */
-    private const SALES_RETRY_BASE_MS = 2000;
+    private const SALES_RETRY_BASE_MS = 3000;
+
+    /** Response timeout: large payloads can be slow */
+    private const SALES_TIMEOUT = 480;
 
     private $yofiToken = 'cf8bc76e6373efe9027e1ee50ddb483fa46458c7';
 
@@ -52,33 +53,19 @@ class SyncThirdPartyData extends Command
         $startedAt = microtime(true);
         $hadSalesFailure = false;
 
-        // #region agent log
-        $__dbg = function (string $hid, string $msg, array $data = []) {
-            file_put_contents(base_path('debug-741ebe.log'), json_encode([
-                'sessionId' => '741ebe',
-                'runId' => 'post-fix',
-                'hypothesisId' => $hid,
-                'location' => 'SyncThirdPartyData.php:handle',
-                'message' => $msg,
-                'data' => $data,
-                'timestamp' => (int) round(microtime(true) * 1000),
-            ]) . "\n", FILE_APPEND);
-        };
-        // #endregion
+        $branches = Branch::whereNotNull('branch_id')
+            ->where('branch_id', '!=', '')
+            ->get();
+
+        if ($branches->isEmpty()) {
+            $this->warn('No branches found');
+            return 0;
+        }
 
         [$start, $end] = $this->resolveDateRange();
 
         $this->info('Date range: ' . $start->toDateTimeString() . ' -> ' . $end->toDateTimeString());
-
-        // #region agent log
-        $__dbg('H1', 'sync start', [
-            'from' => $start->toDateTimeString(),
-            'to' => $end->toDateTimeString(),
-            'branch_count' => Branch::count(),
-            'sales_before' => \App\Models\Sale::count(),
-            'sale_items_before' => \App\Models\SaleItem::count(),
-        ]);
-        // #endregion
+        $this->info('Branches: ' . $branches->count());
 
         // Day-wise sales fetch: smaller payloads, partial success if one day fails
         $this->info('Fetching sales (day-wise with retry)...');
@@ -86,31 +73,20 @@ class SyncThirdPartyData extends Command
         $salesByShop = $salesResult['grouped'];
         $hadSalesFailure = $salesResult['had_failure'];
 
-        $this->info('Syncing branches from GetSalesByDateV2 ShopName...');
+         $this->info('Syncing branches from GetSalesByDateV2 ShopName...');
         $this->syncBranchesFromSalesApi($salesByShop);
 
         $this->info('Syncing sales staff from GetSalesByDateV2...');
-        $this->syncSaleStaffFromSalesApi($salesByShop);
+        try {
+            $this->syncSaleStaffFromSalesApi($salesByShop);
+        } catch (\Throwable $e) {
+            Log::error('Sales staff sync failed (continuing to save sales)', ['error' => $e->getMessage()]);
+            $this->error('Sales staff sync failed (continuing to save sales): ' . $e->getMessage());
+        }
 
         $branches = Branch::whereNotNull('branch_id')
             ->where('branch_id', '!=', '')
             ->get();
-
-        // #region agent log
-        $shopKeys = array_keys($salesByShop);
-        $branchNames = $branches->pluck('name')->all();
-        $matched = array_values(array_intersect($shopKeys, $branchNames));
-        $unmatched = array_values(array_diff($shopKeys, $branchNames));
-        $__dbg('H1', 'sales fetch result', [
-            'had_failure' => $hadSalesFailure,
-            'shops_fetched' => count($shopKeys),
-            'invoices_fetched' => array_sum(array_map('count', $salesByShop)),
-            'matched_shops' => count($matched),
-            'unmatched_shops' => count($unmatched),
-            'unmatched_sample' => array_slice($unmatched, 0, 10),
-            'matched_sample' => array_slice($matched, 0, 10),
-        ]);
-        // #endregion
 
         if ($hadSalesFailure && empty($salesByShop)) {
             $this->error('Sales sync failed for all requested days.');
@@ -118,52 +94,36 @@ class SyncThirdPartyData extends Command
             $this->warn('Sales sync partially failed — some days were skipped.');
         }
 
-        // Persist sales immediately so txn/footfall failures cannot block sales
+        // Save sales first so txn/footfall failures never block invoice persistence
         $this->info('Saving sales...');
-        // #region agent log
-        $__dbg('H3', 'persistSales starting (before transactions)', [
-            'shops_to_persist' => count($salesByShop),
-            'in_memory_invoices' => array_sum(array_map('count', $salesByShop)),
-        ]);
-        // #endregion
-        try {
-            $savedInvoices = $this->persistSales($salesByShop);
-        } catch (\Throwable $e) {
-            // #region agent log
-            $__dbg('H4', 'persistSales exception', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ]);
-            // #endregion
-            throw $e;
-        }
+        $savedInvoices = $this->persistSales($branches, $salesByShop);
         $this->info("Sales invoices saved: {$savedInvoices}");
 
-        // #region agent log
-        $__dbg('H3', 'persistSales finished', [
-            'saved_invoices' => $savedInvoices,
-            'sales_after' => \App\Models\Sale::count(),
-            'sale_items_after' => \App\Models\SaleItem::count(),
-        ]);
-        // #endregion
+        try {
+            app(TargetAchievementNotifier::class)->notifyCurrentMonthHits();
+        } catch (\Throwable $e) {
+            Log::error('Target achievement notify failed', ['error' => $e->getMessage()]);
+            $this->warn('Target achievement notify failed: ' . $e->getMessage());
+        }
 
-        // V3 is a separate API used only for line_items (not sales)
-        $this->info('Syncing line items from GetSalesByDateV3...');
-        $this->syncLineItemsFromV3($start, $end);
-
-        if ($branches->isEmpty()) {
-            $this->warn('No branches with Branch ID — skipping transactions and footfall.');
-        } else {
+        try {
+            // V3 is a separate API used only for line_items (not sales)
+            $this->info('Syncing line items from GetSalesByDateV3...');
+            $this->syncLineItemsFromV3($start, $end);
+            
             $this->info('Syncing transactions...');
             $this->syncTransactionSummaries($branches);
+        } catch (\Throwable $e) {
+            Log::error('Transaction sync failed', ['error' => $e->getMessage()]);
+            $this->error('Transaction sync failed (sales already saved): ' . $e->getMessage());
+        }
 
-            // #region agent log
-            $__dbg('H3', 'transactions finished', []);
-            // #endregion
-
+        try {
             $this->info('Syncing footfall (all branches, one request)...');
             $this->syncAllFootfall($branches, $start, $end);
+        } catch (\Throwable $e) {
+            Log::error('Footfall sync failed', ['error' => $e->getMessage()]);
+            $this->error('Footfall sync failed (sales already saved): ' . $e->getMessage());
         }
 
         $seconds = round(microtime(true) - $startedAt, 2);
@@ -284,22 +244,6 @@ class SyncThirdPartyData extends Command
 
                 if ($response->successful()) {
                     $salesList = $response->json('SalesList') ?? [];
-                    // #region agent log
-                    file_put_contents(base_path('debug-741ebe.log'), json_encode([
-                        'sessionId' => '741ebe',
-                        'runId' => 'post-fix',
-                        'hypothesisId' => 'H1',
-                        'location' => 'SyncThirdPartyData.php:fetchSalesForDateRange',
-                        'message' => 'sales API success',
-                        'data' => [
-                            'from' => $params['SaleFromDate'],
-                            'to' => $params['SaleToDate'],
-                            'count' => is_array($salesList) ? count($salesList) : -1,
-                            'attempt' => $attempt,
-                        ],
-                        'timestamp' => (int) round(microtime(true) * 1000),
-                    ]) . "\n", FILE_APPEND);
-                    // #endregion
                     return is_array($salesList) ? $salesList : [];
                 }
 
@@ -352,10 +296,6 @@ class SyncThirdPartyData extends Command
         return null;
     }
 
-    /**
-     * Create missing branches from V2 ShopName / ShopId.
-     * Existing Yofi outlet IDs on branch_id are never overwritten.
-     */
     private function syncBranchesFromSalesApi(array $salesByShop): void
     {
         $created = 0;
@@ -400,10 +340,43 @@ class SyncThirdPartyData extends Command
         $this->info("Branches from API: {$created} created, {$filled} Branch ID filled");
     }
 
-    /**
-     * Create/update sale staff from V2 SalesPersonName / SalesPersonCode.
-     * Branch is the ShopName they last sold in. Designation is a default for new/empty rows.
-     */
+    private function persistSales($branches, array $salesByShop): int
+    {
+        $saved = 0;
+        // $lineItemNames = [];
+        // Build name lookup for logging / optional branch mapping (NOT used to skip saves)
+        $branchNames = $branches->pluck('name')->filter()->map(function ($n) {
+            return strtolower(trim($n));
+        })->flip();
+
+        // Save EVERY shop returned by the Sales API — do not drop unknown shops
+        foreach ($salesByShop as $shopName => $shopSales) {
+            if (empty($shopSales) || trim((string) $shopName) === '') {
+                continue;
+            }
+
+            $this->saveBranchSales($shopSales);
+            // $lineItemNames = array_merge($lineItemNames, $this->saveBranchSales($shopSales));
+            $count = count($shopSales);
+            $saved += $count;
+
+            $known = $branchNames->has(strtolower(trim((string) $shopName)));
+            $tag = $known ? '' : ' [shop not in branches table — still saved]';
+            $this->info("Sales saved: {$shopName} ({$count} invoices){$tag}");
+        }
+
+        // Warn about API shops missing from branches (footfall/targets still need branch rows)
+        $apiShops = collect(array_keys($salesByShop))->map(fn ($n) => strtolower(trim((string) $n)));
+        $missingBranches = $apiShops->filter(fn ($n) => !$branchNames->has($n))->values();
+        if ($missingBranches->isNotEmpty()) {
+            $this->warn('API shops not found in branches table (sales still saved): ' . $missingBranches->take(20)->implode(', '));
+        }
+        // if (!empty($lineItemNames)) {
+        //     app(LineItemSyncService::class)->syncFromNames($lineItemNames);
+        // }
+        return $saved;
+    }
+
     private function syncSaleStaffFromSalesApi(array $salesByShop): void
     {
         $people = [];
@@ -526,61 +499,74 @@ class SyncThirdPartyData extends Command
         return $email;
     }
 
-    private function persistSales(array $salesByShop): int
+    /**
+     * Stable unique key: shop identity + invoice number.
+     * InvoiceNo alone is reused across shops in the upstream API.
+     */
+    private function makeSaleKey(?string $shopId, ?string $shopName, $invoiceNo): string
     {
-        $saved = 0;
+        $shopPart = trim((string) (($shopId !== null && $shopId !== '')
+            ? $shopId
+            : ($shopName ?: 'unknown')));
 
-        foreach ($salesByShop as $shopName => $shopSales) {
-            if (empty($shopSales) || trim((string) $shopName) === '') {
+        return $shopPart . '|' . trim((string) $invoiceNo);
+    }
+
+    private function saveBranchSales(array $sales): void
+    
+    {
+        // $lineItemNames = [];
+        foreach ($sales as $sale) {
+            $invoiceNo = $sale['InvoiceNo'] ?? null;
+            $shopName = $sale['ShopName'] ?? null;
+            $shopId = isset($sale['ShopId']) ? (string) $sale['ShopId'] : null;
+
+            if ($invoiceNo === null || $invoiceNo === '') {
                 continue;
             }
 
-            $this->saveBranchSales($shopSales);
-            $count = count($shopSales);
-            $saved += $count;
-            $this->info("Sales saved: {$shopName} ({$count} invoices)");
-        }
+            $saleKey = $this->makeSaleKey($shopId, $shopName, $invoiceNo);
 
-        return $saved;
-    }
-
-    /**
-     * Persist V2 sales invoices and line-level sale_items.
-     */
-    private function saveBranchSales(array $sales): void
-    {
-        foreach ($sales as $sale) {
             $invoice = Sale::updateOrCreate(
                 [
-                    'invoice_id' => $sale['InvoiceNo'],
+                    'sale_key' => $saleKey,
                 ],
                 [
-                    'invoice_id' => $sale['InvoiceNo'],
+                    'sale_key' => $saleKey,
+                    'invoice_id' => $invoiceNo,
+                    'sales_id' => $sale['Id'] ?? $sale['Id'] ?? $sale['Id'] ?? null,
                     'sale_from_date' => $sale['SaleFromDate'] ?? null,
                     'sale_to_date' => $sale['SaleToDate'] ?? null,
                     'date' => Carbon::parse($sale['Date']),
                     'coupon_no' => $sale['CouponNo'] ?? null,
-                    'shop_id' => $sale['ShopId'] ?? null,
-                    'shop_name' => $sale['ShopName'] ?? null,
+                    'shop_id' => $shopId,
+                    'shop_name' => $shopName,
                     'mobile_number' => $sale['MobileNumber'] ?? null,
                     'customer_name' => $sale['CustomerName'] ?? null,
                     'gender' => $sale['Gender'] ?? null,
                     'net_total' => $sale['NetTotal'] ?? 0,
                     'comments' => $sale['Comments'] ?? null,
                     'additional_comments' => $sale['AdditionalComments'] ?? null,
-                    'sale_key' => ($sale['ShopId'] ?? '') . '|' . ($sale['InvoiceNo'] ?? ''),
                 ]
             );
 
             $items = $sale['data'] ?? [];
 
             foreach ($items as $item) {
+                $productCode = $item['ProductCode'] ?? null;
+                if ($productCode === null || $productCode === '') {
+                    continue;
+                }
+
                 SaleItem::updateOrCreate(
                     [
-                        'invoice_id' => $invoice->invoice_id,
-                        'product_code' => $item['ProductCode'],
+                        'sale_key' => $saleKey,
+                        'product_code' => $productCode,
                     ],
                     [
+                        'sale_key' => $saleKey,
+                        'invoice_id' => $invoice->invoice_id,
+                        'shop_name' => $shopName,
                         'product_name' => $item['ProductName'] ?? null,
                         'product_category' => $item['ProductCategory'] ?? null,
                         'product_sub_category' => $item['ProductSubCategory'] ?? null,
@@ -594,14 +580,12 @@ class SyncThirdPartyData extends Command
                         'salesperson_name' => $item['SalesPersonName'] ?? null,
                         'salesperson_code' => $item['SalesPersonCode'] ?? null,
                         'category' => $item['Category'] ?? null,
-                        'shop_name' => $sale['ShopName'] ?? null,
-                        'sale_key' => ($sale['ShopId'] ?? '') . '|' . ($sale['InvoiceNo'] ?? ''),
                     ]
                 );
             }
+
         }
     }
-
     /**
      * Sync unique LineItem column values from GetSalesByDateV3 into line_items.
      * Independent of V2 sales sync — failures here do not roll back sales.
@@ -620,459 +604,34 @@ class SyncThirdPartyData extends Command
             Log::error('Line items V3 sync failed', ['error' => $e->getMessage()]);
             $this->warn('Line items sync failed: ' . $e->getMessage());
         }
+        
     }
 
     private function syncTransactionSummaries($branches): void
-{
-    /*
-     * Keep concurrency low because the Yofi API has already returned
-     * HTTP 429 (Too Many Requests).
-     */
-    $chunkSize = 3;
-
-    /*
-     * Maximum number of attempts per branch.
-     *
-     * Attempt 1 = initial request
-     * Attempt 2 = retry
-     * Attempt 3 = retry
-     * Attempt 4 = final retry
-     */
-    $maxAttempts = 4;
-
-    /*
-     * Base exponential backoff:
-     *
-     * Attempt 1 -> no delay
-     * Attempt 2 -> 2 seconds
-     * Attempt 3 -> 4 seconds
-     * Attempt 4 -> 8 seconds
-     *
-     * A small random jitter is added to prevent all requests
-     * retrying at exactly the same time.
-     */
-    $baseBackoffSeconds = 2;
-
-    foreach ($branches->chunk($chunkSize) as $chunk) {
-
-        $responses = [];
-
-        /*
-         * Process a small number of branches concurrently.
-         */
-        try {
+    {
+        foreach ($branches->chunk(10) as $chunk) {
             $responses = Http::pool(function ($pool) use ($chunk) {
                 $requests = [];
 
                 foreach ($chunk as $branch) {
                     $branchKey = $branch->id;
 
-                    $requests["txn_{$branchKey}"] = $pool
-                        ->as("txn_{$branchKey}")
-                        ->withOptions([
-                            'connect_timeout' => 15,
-                            'timeout' => 60,
-                        ])
+                    $requests["txn_{$branchKey}"] = $pool->as("txn_{$branchKey}")
+                        ->timeout(60)
                         ->withHeaders([
                             'Authorization' => 'Token ' . $this->yofiToken,
-                            'Accept' => 'application/json',
                         ])
-                        ->get(
-                            'https://unov.yofi.link/api/outlet/' . $branch->branch_id . '/'
-                        );
+                        ->get('https://unov.yofi.link/api/outlet/' . $branch->branch_id . '/');
                 }
 
                 return $requests;
             });
-        } catch (\Throwable $e) {
 
-            /*
-             * A pool-level failure should not stop the complete
-             * sales/footfall/transaction synchronization.
-             */
-            Log::warning('Transaction pool request failed', [
-                'error' => $e->getMessage(),
-            ]);
-
-            $responses = [];
-        }
-
-        foreach ($chunk as $branch) {
-
-            $branchKey = $branch->id;
-            $response = $responses["txn_{$branchKey}"] ?? null;
-
-            /*
-             * If the pooled response is missing or malformed,
-             * fall back to an individual request with retries.
-             *
-             * This also protects against:
-             *
-             * Call to a member function getStatusCode() on null
-             */
-            if (!$this->isValidHttpResponse($response)) {
-
-                $response = $this->fetchTransactionWithRetry(
-                    $branch,
-                    $maxAttempts,
-                    $baseBackoffSeconds
-                );
-            }
-
-            /*
-             * Still no usable response after retries.
-             */
-            if (!$this->isValidHttpResponse($response)) {
-
-                Log::warning('Transaction sync failed after retries', [
-                    'branch_id' => $branch->id,
-                    'outlet' => $branch->branch_id,
-                    'status' => null,
-                ]);
-
-                continue;
-            }
-
-            /*
-             * HTTP 429 from the pooled request.
-             *
-             * Retry individually with exponential backoff.
-             */
-            if ($response->status() === 429) {
-
-                Log::warning('Transaction API rate limited', [
-                    'branch_id' => $branch->id,
-                    'outlet' => $branch->branch_id,
-                    'status' => 429,
-                ]);
-
-                $response = $this->fetchTransactionWithRetry(
-                    $branch,
-                    $maxAttempts,
-                    $baseBackoffSeconds
-                );
-            }
-
-            /*
-             * Save the final response.
-             *
-             * saveTransactionSummary() already checks
-             * successful(), but only call it when the response
-             * itself is safe.
-             */
-            if ($this->isValidHttpResponse($response)) {
-
-                $this->saveTransactionSummary(
-                    $branch,
-                    $response
-                );
-            } else {
-
-                Log::warning('Transaction sync skipped - invalid response', [
-                    'branch_id' => $branch->id,
-                    'outlet' => $branch->branch_id,
-                ]);
+            foreach ($chunk as $branch) {
+                $this->saveTransactionSummary($branch, $responses["txn_{$branch->id}"] ?? null);
             }
         }
-
-        /*
-         * Small pause between chunks to reduce pressure on
-         * the Yofi API.
-         */
-        usleep(500000); // 0.5 second
     }
-}
-
-
-/**
- * Fetch a transaction summary for one branch with:
- *
- * - 429 retry
- * - exponential backoff
- * - Retry-After support
- * - connection timeout handling
- * - request timeout handling
- * - safe exception handling
- */
-private function fetchTransactionWithRetry(
-    $branch,
-    int $maxAttempts = 4,
-    int $baseBackoffSeconds = 2
-) {
-    $url = 'https://unov.yofi.link/api/outlet/' . $branch->branch_id . '/';
-
-    for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-
-        try {
-
-            $this->info(
-                "Transaction sync: {$branch->branch_id} - attempt {$attempt}/{$maxAttempts}"
-            );
-
-            $response = Http::withOptions([
-                    'connect_timeout' => 15,
-                    'timeout' => 60,
-                ])
-                ->withHeaders([
-                    'Authorization' => 'Token ' . $this->yofiToken,
-                    'Accept' => 'application/json',
-                ])
-                ->get($url);
-
-            /*
-             * Protect against the same invalid Response object
-             * that caused:
-             *
-             * getStatusCode() on null
-             */
-            if (!$this->isValidHttpResponse($response)) {
-
-                Log::warning('Transaction API returned invalid response', [
-                    'branch_id' => $branch->id,
-                    'outlet' => $branch->branch_id,
-                    'attempt' => $attempt,
-                ]);
-
-                if ($attempt < $maxAttempts) {
-
-                    $delay = $this->calculateExponentialBackoff(
-                        $attempt,
-                        $baseBackoffSeconds
-                    );
-
-                    $this->info(
-                        "Retrying {$branch->branch_id} in {$delay} seconds..."
-                    );
-
-                    sleep($delay);
-
-                    continue;
-                }
-
-                return null;
-            }
-
-            $status = $response->status();
-
-            /*
-             * Success.
-             */
-            if ($response->successful()) {
-
-                return $response;
-            }
-
-            /*
-             * Rate limited.
-             */
-            if ($status === 429) {
-
-                if ($attempt >= $maxAttempts) {
-
-                    Log::warning('Transaction API 429 - retries exhausted', [
-                        'branch_id' => $branch->id,
-                        'outlet' => $branch->branch_id,
-                        'attempt' => $attempt,
-                    ]);
-
-                    return $response;
-                }
-
-                /*
-                 * Prefer Retry-After when Yofi provides it.
-                 */
-                $retryAfter = $response->header('Retry-After');
-
-                if (is_numeric($retryAfter)) {
-
-                    $delay = max(1, (int) $retryAfter);
-
-                } else {
-
-                    $delay = $this->calculateExponentialBackoff(
-                        $attempt,
-                        $baseBackoffSeconds
-                    );
-                }
-
-                Log::warning('Transaction API rate limited - retrying', [
-                    'branch_id' => $branch->id,
-                    'outlet' => $branch->branch_id,
-                    'status' => 429,
-                    'attempt' => $attempt,
-                    'retry_after' => $retryAfter,
-                    'delay_seconds' => $delay,
-                ]);
-
-                $this->info(
-                    "429 for {$branch->branch_id}. Retrying in {$delay} seconds..."
-                );
-
-                sleep($delay);
-
-                continue;
-            }
-
-            /*
-             * Server-side errors.
-             *
-             * Retry 5xx responses because these may be temporary.
-             */
-            if ($status >= 500 && $status <= 599) {
-
-                if ($attempt >= $maxAttempts) {
-
-                    Log::warning('Transaction API server error - retries exhausted', [
-                        'branch_id' => $branch->id,
-                        'outlet' => $branch->branch_id,
-                        'status' => $status,
-                        'attempt' => $attempt,
-                    ]);
-
-                    return $response;
-                }
-
-                $delay = $this->calculateExponentialBackoff(
-                    $attempt,
-                    $baseBackoffSeconds
-                );
-
-                Log::warning('Transaction API server error - retrying', [
-                    'branch_id' => $branch->id,
-                    'outlet' => $branch->branch_id,
-                    'status' => $status,
-                    'attempt' => $attempt,
-                    'delay_seconds' => $delay,
-                ]);
-
-                sleep($delay);
-
-                continue;
-            }
-
-            /*
-             * Other HTTP errors such as 400, 401, 403, 404 should
-             * not be retried because they are generally not temporary.
-             */
-            Log::warning('Transaction API request failed', [
-                'branch_id' => $branch->id,
-                'outlet' => $branch->branch_id,
-                'status' => $status,
-                'attempt' => $attempt,
-            ]);
-
-            return $response;
-
-        } catch (ConnectionException $e) {
-
-            /*
-             * Handles connection timeout / connection failure.
-             */
-            Log::warning('Transaction API connection failed', [
-                'branch_id' => $branch->id,
-                'outlet' => $branch->branch_id,
-                'attempt' => $attempt,
-                'error' => $e->getMessage(),
-            ]);
-
-            if ($attempt >= $maxAttempts) {
-                return null;
-            }
-
-            $delay = $this->calculateExponentialBackoff(
-                $attempt,
-                $baseBackoffSeconds
-            );
-
-            $this->info(
-                "Connection failed for {$branch->branch_id}. " .
-                "Retrying in {$delay} seconds..."
-            );
-
-            sleep($delay);
-
-        } catch (\Throwable $e) {
-
-            /*
-             * Catch unexpected HTTP/client errors so one branch
-             * cannot terminate the entire scheduled command.
-             */
-            Log::warning('Transaction API unexpected error', [
-                'branch_id' => $branch->id,
-                'outlet' => $branch->branch_id,
-                'attempt' => $attempt,
-                'error' => $e->getMessage(),
-            ]);
-
-            if ($attempt >= $maxAttempts) {
-                return null;
-            }
-
-            $delay = $this->calculateExponentialBackoff(
-                $attempt,
-                $baseBackoffSeconds
-            );
-
-            sleep($delay);
-        }
-    }
-
-    return null;
-}
-
-
-/**
- * Safely determine whether the Laravel HTTP response can be used.
- *
- * This is specifically intended to prevent:
- *
- * Call to a member function getStatusCode() on null
- */
-private function isValidHttpResponse($response): bool
-{
-    if (!$response instanceof \Illuminate\Http\Client\Response) {
-        return false;
-    }
-
-    try {
-        /*
-         * Calling status() inside try/catch verifies that the
-         * wrapped PSR response actually exists.
-         */
-        $response->status();
-
-        return true;
-
-    } catch (\Throwable $e) {
-
-        return false;
-    }
-}
-
-
-/**
- * Exponential backoff with small jitter.
- *
- * attempt 1 -> 2 + jitter
- * attempt 2 -> 4 + jitter
- * attempt 3 -> 8 + jitter
- */
-private function calculateExponentialBackoff(
-    int $attempt,
-    int $baseSeconds = 2
-): int {
-    $exponential = $baseSeconds * (2 ** max(0, $attempt - 1));
-
-    /*
-     * Random 0-1 second jitter.
-     */
-    $jitter = random_int(0, 1);
-
-    /*
-     * Maximum delay = 30 seconds.
-     */
-    return min($exponential + $jitter, 30);
-}
 
     /**
      * One API hit returns every shop's footfall for the date range.

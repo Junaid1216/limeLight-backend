@@ -6,6 +6,8 @@
     <section class="section">
         <div class="section-body">
 
+            @if (Auth::guard('admin')->check() ||
+                    ($sideMenuPermissions->has('Display Categories') && ($sideMenuPermissions['Display Categories']->contains('create') || $sideMenuPermissions['Display Categories']->contains('edit'))))
             <div class="card">
                 <div class="card-header">
                     <h4>Add Display Category</h4>
@@ -47,6 +49,7 @@
                     </div>
                 </form>
             </div>
+            @endif
 
             <div class="card">
                 <div class="card-header">

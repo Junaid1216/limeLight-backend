@@ -60,6 +60,8 @@
                                                 <span class="badge badge-success">Approved</span>
                                             @else
                                                 <span class="badge badge-warning">Pending</span>
+                                                @if (Auth::guard('admin')->check() ||
+                                                        ($sideMenuPermissions->has('Assigned Targets') && $sideMenuPermissions['Assigned Targets']->contains('edit')))
                                                 <form method="POST" action="{{ route('assigned.target.approve') }}" class="approve-form">
                                                     @csrf
                                                     <input type="hidden" name="branch_id" value="{{ $group['branch_id'] }}">
@@ -68,6 +70,7 @@
                                                     <input type="hidden" name="year" value="{{ $group['year'] }}">
                                                     <button type="submit" class="btn btn-sm btn-success">Approve</button>
                                                 </form>
+                                                @endif
                                             @endif
                                         </div>
                                     </div>

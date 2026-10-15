@@ -78,6 +78,8 @@
                                                 <td style="white-space: pre-wrap;"><?php echo e($feedback->feedback); ?></td>
                                                 <td><?php echo e($feedback->created_at ? $feedback->created_at->copy()->timezone('Asia/Karachi')->format('d M Y, h:i A') : '-'); ?></td>
                                                 <td>
+                                                    <?php if(Auth::guard('admin')->check() ||
+                                                            ($sideMenuPermissions->has('Feedback') && $sideMenuPermissions['Feedback']->contains('delete'))): ?>
                                                     <form id="delete-form-<?php echo e($feedback->id); ?>"
                                                         action="<?php echo e(route('feedback.destroy', $feedback->id)); ?>"
                                                         method="POST"
@@ -91,6 +93,9 @@
                                                             <i class="fa fa-trash"></i>
                                                         </button>
                                                     </form>
+                                                    <?php else: ?>
+                                                        -
+                                                    <?php endif; ?>
                                                 </td>
                                             </tr>
                                         <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>

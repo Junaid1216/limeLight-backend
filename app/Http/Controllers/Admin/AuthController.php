@@ -61,7 +61,7 @@ class AuthController extends Controller
            if ($subAdmin->status == 1) {
                 auth()->guard('subadmin')->login($subAdmin, $remember_me);
                 
-                return redirect('admin/dashboard')->with('success', 'Sub-Admin Login Successfully!');
+                return redirect('admin/dashboard')->with('success', 'Sub-Admin Logged In Successfully!');
             } else {
                 // Check if user is already logged in
                 
